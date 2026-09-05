@@ -98,12 +98,12 @@ Human confirmation will be required before AI-detected actions modify business r
 
 | Team Member | GitHub Username | Responsibility |
 |---|---|---|
-| Fida Abbass Jebaoui | `YOUR_USERNAME` | Database + Backend |
-| Haidar Fadi Jouni | `GITHUB_USERNAME` | Database + Backend |
-| Nour Thaer Al Haj Diab | `GITHUB_USERNAME` | UX/UI + Frontend Design |
-| Zeinab Khalil Hammoud | `GITHUB_USERNAME` | Research & Business |
-| Georges Nidal Abou Rjeily | `GITHUB_USERNAME` | Frontend |
-| Mario Georges El Helou | `GITHUB_USERNAME` | Frontend |
+| Fida Abbass Jebaoui |                | Database + Backend |
+| Haidar Fadi Jouni |                  | Database + Backend |
+| Nour Thaer Al Haj Diab |              | UX/UI + Frontend Design |
+| Zeinab Khalil Hammoud |               | Research & Business |
+| Georges Nidal Abou Rjeily |                 | Frontend |
+| Mario Georges El Helou |                 | Frontend |
 
 ## Getting Started
 
