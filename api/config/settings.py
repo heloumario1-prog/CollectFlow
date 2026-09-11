@@ -42,12 +42,14 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+
     "businesses",
     "accounts",
     "customers",
     "receivables",
+    "payment_promises",
+    "payments",
     "followups",
-    "audit",
 ]
 
 MIDDLEWARE = [
