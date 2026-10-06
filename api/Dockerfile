@@ -12,11 +12,11 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /uvx /bin/
 
 # Install dependencies in a separate layer so Docker can cache them.
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+COPY pyproject.toml uv.lock* ./
+RUN uv sync --no-dev --no-install-project
 
 COPY . .
-RUN uv sync --frozen --no-dev
+RUN uv sync --no-dev
 
 EXPOSE 8000
 
