@@ -5,7 +5,7 @@ This file applies to work under `frontend/`. The root `AGENTS.md` is the approve
 ## What exists today
 
 - The stack is React 19, React Router 8 in Data Mode, TypeScript 5.9, Vite 8, and Tailwind CSS 4. The app is a browser-rendered SPA served as static files by Nginx in the current Docker setup.
-- `src/main.tsx` currently declares the routes. Most screens in `src/routes/` read or mutate in-memory `src/data/` modules directly. The dashboard loader and action are placeholders. Login and registration do not call Django.
+- `src/main.tsx` mounts the router from `src/router.tsx`. The public `/` route renders `src/screens/welcome/WelcomePage.tsx`, styled with Tailwind tokens in `src/welcome.css`. Its account buttons are intentionally inactive, and its collection previews use illustrative data. Unknown routes have a fallback page. The old `src/routes/` prototypes and `src/styles.css` are retained but are not mounted; their in-memory data, login, and registration are not connected to Django.
 - There is no credentialed API client, CSRF handling, protected routing, or frontend test/lint script yet. The existing screens and local data are disposable UI prototypes, **not architecture examples** for connected features. Do not claim that a prototype flow persists data or authenticates users.
 
 ## Target file structure
