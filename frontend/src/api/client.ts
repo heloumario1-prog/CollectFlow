@@ -82,7 +82,7 @@ async function responseError(response: Response): Promise<ApiError> {
   //  messages is a key value object of strings dict
   const messages: Record<number, string> = {
     401: "Please sign in to continue.",
-    403: "Your session may have expired. Please try again.",
+    403: "You do not have permission to do this.",
     404: "This service could not be found.",
     409: "This request conflicts with a recent change. Please review and try again.",
     429: "Too many attempts. Please wait a moment before trying again.",

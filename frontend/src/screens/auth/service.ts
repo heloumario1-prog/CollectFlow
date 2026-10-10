@@ -1,6 +1,7 @@
 import { apiRequest } from "../../api/client";
 import type {
   LoginWrite,
+  ChangePasswordWrite,
   RegisterWrite,
   RegistrationRead,
   UserRead,
@@ -25,6 +26,8 @@ export const authService = {
 
   currentUser: (signal?: AbortSignal) =>
     apiRequest<UserRead>("auth/me/", { signal }),
+  changePassword: (payload: ChangePasswordWrite, signal?: AbortSignal) =>
+    apiRequest<{ message: string }>("auth/change-password/", { method: "POST", body: payload, signal }),
   
   logout: (signal?: AbortSignal) =>
     apiRequest<void>("auth/logout/", { method: "POST", signal }),

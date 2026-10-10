@@ -14,3 +14,5 @@ export type RegisterWrite = {
 };
 
 export type RegistrationRead = { message: string; email: string };
+
+export type ChangePasswordWrite = { old_password: string; new_password: string };

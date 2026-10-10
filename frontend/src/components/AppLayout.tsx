@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Form, Link, Outlet, useLoaderData, useNavigation } from "react-router";
 import { AppSidebar } from "./AppSidebar";
 import type { dashboardLoader } from "../screens/dashboard/loader";
-import "../dashboard.css";
+import "../css/dashboard.css";
+import "../css/workspace-pages.css";
 
 export function AppLayout() {
   const { user, business } = useLoaderData<typeof dashboardLoader>();
@@ -39,6 +40,7 @@ export function AppLayout() {
           <div className="app-profile-actions"><Link to="/settings/profile">Profile</Link><Form method="post" action="/dashboard"><button type="submit" disabled={navigation.state !== "idle"}>{navigation.state !== "idle" ? "Signing out…" : "Sign out"}</button></Form></div>
         </div>
       </header>
+      {navigation.state === "loading" && <div className="app-navigation-loading" role="status">Loading page…</div>}
       <main id="dashboard-content" tabIndex={-1} className="app-content"><Outlet context={{ user, business }} /></main>
     </div>
   </div>;

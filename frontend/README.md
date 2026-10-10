@@ -1,87 +1,38 @@
-# Welcome to React Router!
+# CollectFlow frontend
 
-A modern, production-ready template for building full-stack React applications using React Router.
+CollectFlow's frontend is a React 19, React Router 8, TypeScript, Vite, and Tailwind CSS single-page app. It builds to static files in `dist/`; the Docker image serves them with Nginx.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+## Run locally
 
-## Features
-
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
-
-## Getting Started
-
-### Installation
-
-Install the dependencies:
+From `frontend/`:
 
 ```bash
-npm install
-```
-
-### Development
-
-Start the development server with HMR:
-
-```bash
+npm ci
 npm run dev
 ```
 
-Your application will be available at `http://localhost:5173`.
+Vite serves the app at `http://localhost:5173` and proxies `/api` to Django at `http://127.0.0.1:8000`. Start the API separately for connected account pages.
 
-## Building for Production
-
-Create a production build:
+## Check and build
 
 ```bash
+npm run typecheck
 npm run build
 ```
 
-## Deployment
+`npm run build` writes static assets to `dist/`. There is no frontend test or lint script yet.
 
-### Docker Deployment
+## Current routes
 
-To build and run using Docker:
+The public welcome page is `/`. Login and registration use the mounted auth API. Successful login opens `/dashboard`. The protected workspace includes connected staff management at `/staff`, profile and password settings at `/settings/profile`, and manager-only business settings at `/settings/business`. Dashboard financial figures and the collection areas are still placeholders because their APIs are not mounted.
 
-```bash
-docker build -t my-app .
+## Stylesheets
 
-# Run the container
-docker run -p 3000:3000 my-app
-```
+Frontend stylesheets live in `src/css/`:
 
-The containerized application can be deployed to any platform that supports Docker, including:
+- `welcome.css` contains the Tailwind theme and public account-page styles and is imported by `src/main.tsx`.
+- `dashboard.css` styles the workspace shell and dashboard.
+- `workspace-pages.css` styles staff and settings pages. Both workspace files are imported by `src/components/AppLayout.tsx`.
+- `styles.css` belongs to the unmounted legacy prototypes and is retained as a reference.
 
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
-
-```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+The production Nginx configuration serves the SPA and proxies `/api/` to the API service. See `AGENTS.md` for the frontend structure and the root product contract for approved behavior.
