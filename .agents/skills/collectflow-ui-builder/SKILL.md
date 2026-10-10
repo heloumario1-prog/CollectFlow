@@ -12,6 +12,7 @@ Use this skill for a requested CollectFlow frontend screen or component. The des
 - Read the repository-root `AGENTS.md` and `frontend/AGENTS.md` before frontend work. Follow the user's current instructions and the relevant product decisions.
 - Read `api/AGENTS.md` when backend behavior or implementation status matters. For API requests, read the relevant sections of `docs/mvp-contract.md` and inspect the actual route, view, and schema before relying on an endpoint. Planned routes are not evidence that an API exists.
 - Inspect the requested screen, adjacent shared components, route setup, stylesheet, and package scripts before changing them. Current in-memory screens are prototypes, not connected-flow examples.
+- When creating or changing a form connected to an implemented API, read [preference/form.md](preference/form.md) before implementing its submission and validation. It does not apply to disconnected visual prototypes.
 
 ## Implement within the requested area
 

@@ -56,6 +56,13 @@
   .account-compact .welcome-button-secondary { @apply border-transparent; }
   .welcome-page a { @apply transition-colors duration-300; }
   .welcome-page a:hover { color: var(--color-quest-gold-border); }
+  .welcome-page .welcome-button-primary:hover { background: var(--color-quest-gold-hover); color: var(--color-quest-background); }
+  .auth-brand-panel { background-image: radial-gradient(ellipse at 30% 40%, #CA8A040A, transparent 70%); }
+  .auth-input { transition: border-color 300ms, box-shadow 300ms; }
+  .auth-input:hover { border-color: var(--color-quest-gold); }
+  .auth-input:focus-visible { border-color: var(--color-quest-gold-border); outline: 2px solid var(--color-quest-gold-border); outline-offset: 2px; box-shadow: 0 0 0 4px #CA8A0415; }
+  .auth-input[aria-invalid="true"] { border-color: var(--color-quest-red-border); }
+  .auth-input:autofill { box-shadow: 0 0 0 1000px var(--color-quest-surface) inset; -webkit-text-fill-color: var(--color-quest-parchment); caret-color: var(--color-quest-parchment); }
   .welcome-page :is(a, button):focus-visible { outline: 2px solid var(--color-quest-gold-border); outline-offset: 5px; }
   .hero-section { background: radial-gradient(ellipse at 75% 45%, #CA8A040A, transparent 60%); }
   .closing-panel { background-image: radial-gradient(ellipse at 50% 120%, #CA8A0410, transparent 65%); }
@@ -71,5 +78,6 @@
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .welcome-page *, .welcome-page *::before, .welcome-page *::after { transition: none; }
+    .auth-page * { transition: none; }
   }
 }

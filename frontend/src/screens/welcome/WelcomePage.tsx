@@ -1,4 +1,8 @@
 import type { ReactNode } from "react";
+import { Form, Link, useActionData, useLoaderData, useNavigation } from "react-router";
+import { CollectFlowBrand } from "../../components/CollectFlowBrand";
+import type { UserRead } from "../../type/auth";
+import type { AuthActionResult } from "../auth/action";
 
 type IconName = "arrow" | "book" | "people" | "check" | "chat" | "clock" | "chart";
 
@@ -16,20 +20,21 @@ function Icon({ name, className = "size-5" }: { name: IconName; className?: stri
 }
 
 function Brand() {
-  return (
-    <a href="#top" aria-label="CollectFlow home" className="inline-flex shrink-0 items-center gap-3">
-      <span className="grid size-10 place-items-center border border-quest-gold-border/60 bg-quest-gold-tint text-quest-gold-border"><Icon name="book" className="size-6" /></span>
-      <span className="font-quest-heading text-lg font-semibold tracking-wide">Collect<span className="text-quest-gold-border">Flow</span></span>
-    </a>
-  );
+  return <CollectFlowBrand />;
 }
 
-// Account controls intentionally have no destinations until auth screens are built.
-function AccountButtons({ compact = false }: { compact?: boolean }) {
+function AccountButtons({ compact = false, user }: { compact?: boolean; user: UserRead | null }) {
+  const navigation = useNavigation();
+  if (user) return (
+    <div className={`flex flex-wrap items-center gap-3 ${compact ? "account-compact" : ""}`}>
+      <span className="text-sm text-quest-parchment">Signed in as {user.full_name}</span>
+      {compact && <Form method="post"><button type="submit" disabled={navigation.state !== "idle"} className="welcome-button welcome-button-secondary cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">{navigation.state !== "idle" ? "Signing out…" : "Sign out"}</button></Form>}
+    </div>
+  );
   return (
     <div className={`flex flex-wrap items-center gap-3 ${compact ? "account-compact" : ""}`}>
-      <button type="button" aria-disabled="true" aria-label="Create account, coming soon" className="welcome-button welcome-button-primary">Create account <Icon name="arrow" className="size-4" /></button>
-      <button type="button" aria-disabled="true" aria-label="Sign in, coming soon" className="welcome-button welcome-button-secondary">Sign in</button>
+      <Link to="/register" className="welcome-button welcome-button-primary">Create account <Icon name="arrow" className="size-4" /></Link>
+      <Link to="/login" className="welcome-button welcome-button-secondary">Sign in</Link>
     </div>
   );
 }
@@ -184,6 +189,8 @@ function OverviewSection() {
 }
 
 export function WelcomePage() {
+    const user = useLoaderData() as UserRead | null;
+    const actionData = useActionData() as AuthActionResult | undefined;
     return (
     <div id="top" className="welcome-page min-h-screen bg-quest-background font-quest-body text-quest-parchment">
         <a href="#main-content" className="skip-link">Skip to content</a>
@@ -194,10 +201,11 @@ export function WelcomePage() {
                 <a href="#how-it-works">How it works</a>
                 <a href="#overview">The overview</a>
                 <a href="#team">For your team</a></nav>
-            <AccountButtons compact />
+            <AccountButtons compact user={user} />
             </div>
         </header>
         <main id="main-content" tabIndex={-1}>
+            {actionData?.formError && <p role="alert" className="welcome-container py-4 text-quest-red-text">{actionData.formError}</p>}
             <section className="hero-section relative border-b border-quest-border/70" aria-labelledby="hero-title">
             <div className="welcome-container relative grid items-center gap-16 py-16 md:py-24 lg:grid-cols-[1.04fr_1fr] lg:gap-20 lg:py-28">
                 <div>
@@ -211,7 +219,7 @@ export function WelcomePage() {
                     <p className="mt-6 max-w-lg text-lg/[1.7] text-quest-muted">
                         CollectFlow brings your customers, receivables, payment promises, payments, and follow-ups into one place. See what needs attention and keep each collection moving.
                     </p>
-                    <div className="mt-8"><AccountButtons /></div>
+                    <div className="mt-8"><AccountButtons user={user} /></div>
                     <p className="mt-5 text-xs text-quest-muted">Built for small businesses and suppliers in Lebanon.</p>
                 </div>
                 <div className="mx-3 my-3 min-w-0 sm:mx-4"><LedgerPreview /></div>
@@ -271,7 +279,7 @@ export function WelcomePage() {
                 <span className="mx-auto mb-6 block size-2 rotate-45 border border-quest-gold-border" aria-hidden="true" />
                 <h2 id="closing-title" className="section-title mx-auto max-w-2xl">Ready for a clearer view of your receivables?</h2>
                 <p className="mt-5 text-base text-quest-muted">Your customers. Your collections. A clear next step.</p>
-                <div className="mt-8 flex justify-center"><AccountButtons /></div>
+                <div className="mt-8 flex justify-center"><AccountButtons user={user} /></div>
             </div>
             </section>
         </main>
