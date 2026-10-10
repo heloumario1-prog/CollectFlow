@@ -1,0 +1,83 @@
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Fira+Code:wght@400;500&family=Spectral:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-quest-gold: #CA8A04;
+  --color-quest-gold-border: #DAA520;
+  --color-quest-gold-hover: #B8780A;
+  --color-quest-gold-tint: #CA8A0415;
+  --color-quest-gold-border-soft: #CA8A0440;
+  --color-quest-gold-row: #CA8A040D;
+  --color-quest-red: #991B1B;
+  --color-quest-red-border: #B91C1C;
+  --color-quest-red-hover: #7F1D1D;
+  --color-quest-red-text: #F87171;
+  --color-quest-purple: #581C87;
+  --color-quest-background: #1A0F0A;
+  --color-quest-surface: #2C1A10;
+  --color-quest-elevated: #3D2517;
+  --color-quest-parchment: #F5E6D3;
+  --color-quest-muted: #BFA98A;
+  --color-quest-border: #5C3D2E;
+  --color-quest-success: #22C55E;
+  --color-quest-success-tint: #22C55E20;
+  --color-quest-warning-tint: #CA8A0420;
+  --color-quest-error-tint: #991B1B20;
+  --font-quest-heading: "Cinzel", Georgia, serif;
+  --font-quest-body: "Spectral", Georgia, serif;
+  --font-quest-mono: "Fira Code", monospace;
+  --radius-quest-sm: 2px;
+  --radius-quest: 4px;
+  --radius-quest-md: 6px;
+  --radius-quest-lg: 8px;
+  --shadow-quest-sm: 0 1px 3px rgb(202 138 4 / 15%);
+  --shadow-quest: 0 2px 8px rgb(202 138 4 / 20%);
+  --shadow-quest-md: 0 4px 16px rgb(202 138 4 / 25%);
+  --shadow-quest-lg: 0 8px 32px rgb(202 138 4 / 30%);
+  --shadow-quest-glow: 0 0 20px rgb(202 138 4 / 40%);
+}
+
+@layer base {
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; background: var(--color-quest-background); }
+  body { margin: 0; min-width: 320px; font-synthesis: none; }
+  ::selection { background: var(--color-quest-gold); color: var(--color-quest-background); }
+  button, a { -webkit-tap-highlight-color: transparent; }
+}
+
+@layer components {
+  .welcome-container { @apply mx-auto w-full max-w-[1200px] px-6 sm:px-10; }
+  .section-title { @apply font-quest-heading text-2xl/[1.25] font-semibold; }
+  .welcome-button { @apply inline-flex min-h-12 items-center justify-center gap-3 rounded-quest border px-6 py-3 font-quest-body text-sm font-semibold leading-none transition-colors duration-300; }
+  .welcome-button-primary { @apply border-quest-gold-border bg-quest-gold text-quest-background shadow-quest-sm; }
+  .welcome-button-secondary { @apply border-quest-border bg-transparent text-quest-parchment; }
+  .welcome-button[aria-disabled="true"] { cursor: default; }
+  .account-compact .welcome-button { @apply min-h-10 px-4 text-xs; }
+  .account-compact .welcome-button-primary { order: 2; }
+  .account-compact .welcome-button-secondary { @apply border-transparent; }
+  .welcome-page a { @apply transition-colors duration-300; }
+  .welcome-page a:hover { color: var(--color-quest-gold-border); }
+  .welcome-page .welcome-button-primary:hover { background: var(--color-quest-gold-hover); color: var(--color-quest-background); }
+  .auth-brand-panel { background-image: radial-gradient(ellipse at 30% 40%, #CA8A040A, transparent 70%); }
+  .auth-input { transition: border-color 300ms, box-shadow 300ms; }
+  .auth-input:hover { border-color: var(--color-quest-gold); }
+  .auth-input:focus-visible { border-color: var(--color-quest-gold-border); outline: 2px solid var(--color-quest-gold-border); outline-offset: 2px; box-shadow: 0 0 0 4px #CA8A0415; }
+  .auth-input[aria-invalid="true"] { border-color: var(--color-quest-red-border); }
+  .auth-input:autofill { box-shadow: 0 0 0 1000px var(--color-quest-surface) inset; -webkit-text-fill-color: var(--color-quest-parchment); caret-color: var(--color-quest-parchment); }
+  .welcome-page :is(a, button):focus-visible { outline: 2px solid var(--color-quest-gold-border); outline-offset: 5px; }
+  .hero-section { background: radial-gradient(ellipse at 75% 45%, #CA8A040A, transparent 60%); }
+  .closing-panel { background-image: radial-gradient(ellipse at 50% 120%, #CA8A0410, transparent 65%); }
+  .closing-panel::before, .closing-panel::after { content: ""; position: absolute; width: 18px; height: 18px; border-color: var(--color-quest-gold-border); opacity: .7; }
+  .closing-panel::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+  .closing-panel::after { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+  .skip-link { position: fixed; left: 16px; top: -100px; z-index: 50; padding: 12px 20px; background: var(--color-quest-parchment); color: var(--color-quest-background); }
+  .skip-link:focus { top: 16px; }
+  @media (max-width: 420px) {
+    .account-compact { width: 100%; justify-content: space-between; }
+    .account-compact .welcome-button-secondary { padding-left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .welcome-page *, .welcome-page *::before, .welcome-page *::after { transition: none; }
+    .auth-page * { transition: none; }
+  }
+}
