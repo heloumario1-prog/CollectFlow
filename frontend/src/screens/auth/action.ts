@@ -100,7 +100,7 @@ export async function loginAction({ request }: ActionFunctionArgs) {
   try {
     // calls login method from authService to send a POST request
     await authService.login(payload, request.signal);
-    return redirect("/");
+    return redirect("/dashboard");
   } catch (error) {
     return failed(error);
   }

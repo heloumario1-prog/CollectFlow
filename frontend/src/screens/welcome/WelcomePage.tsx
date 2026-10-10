@@ -27,7 +27,7 @@ function AccountButtons({ compact = false, user }: { compact?: boolean; user: Us
   const navigation = useNavigation();
   if (user) return (
     <div className={`flex flex-wrap items-center gap-3 ${compact ? "account-compact" : ""}`}>
-      <span className="text-sm text-quest-parchment">Signed in as {user.full_name}</span>
+      <Link to="/dashboard" className="welcome-button welcome-button-primary">Open dashboard <Icon name="arrow" className="size-4" /></Link>
       {compact && <Form method="post"><button type="submit" disabled={navigation.state !== "idle"} className="welcome-button welcome-button-secondary cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">{navigation.state !== "idle" ? "Signing out…" : "Sign out"}</button></Form>}
     </div>
   );
