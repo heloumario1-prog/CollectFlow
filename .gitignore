@@ -3,6 +3,10 @@
 .env
 .env.*
 !.env.example
+/Pipfile*
+/apps/
+/collectflow/
+/manage.py
 
 # Operating systems and editors
 .DS_Store
@@ -34,8 +38,8 @@ api/.ruff_cache/
 api/.coverage
 api/coverage.xml
 api/htmlcov/
-api/db.sqlite3
-api/db.sqlite3-journal
+*.sqlite3
+*.sqlite3-journal
 api/media/
 api/staticfiles/
 
