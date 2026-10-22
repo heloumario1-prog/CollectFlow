@@ -1,13 +1,14 @@
-import { useState, type FormEvent } from "react";
+
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { customerOptions } from "../data/customers";
+import { useCustomerOptions } from "../data/customers";
 import {
   addFollowUp,
   getFollowUps,
   updateFollowUp,
-  type ContactMethod,
-  type FollowUpStatus,
+  type FollowUp,
 } from "../data/follow-ups";
+import { listReceivables, type ApiReceivable } from "../data/receivables";
 import { setSaveFeedback } from "../data/save-feedback";
 
 export function AddFollowUpPage() {
@@ -18,66 +19,144 @@ export function EditFollowUpPage() {
   return <FollowUpFormScreen isEdit={true} />;
 }
 
-const receivableOptions = [
-  { customerId: "hassan-al-khalil", label: "Cleaning supplies" },
-  { customerId: "samir-youssef", label: "Wholesale products" },
-  { customerId: "maria-hani", label: "Office supplies" },
-  { customerId: "hassan-al-khalil", label: "Delivery equipment" },
-];
-
 function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
   const navigate = useNavigate();
-  const { followUpId } = useParams();
-  const existing = isEdit
-    ? getFollowUps().find((followUp) => followUp.id === Number(followUpId))
-    : undefined;
-  const [customerId, setCustomerId] = useState(existing?.customerId ?? "");
-  const [receivable, setReceivable] = useState(existing?.receivable ?? "");
-  const [date, setDate] = useState(existing?.date ?? "");
-  const [method, setMethod] = useState<ContactMethod>(existing?.method ?? "WhatsApp");
-  const [notes, setNotes] = useState(existing?.notes ?? "");
-  const [status, setStatus] = useState<FollowUpStatus>(existing?.status ?? "Upcoming");
+  const { id } = useParams();
+  const { options: customers, loading: customersLoading } = useCustomerOptions();
 
-  if (isEdit && !existing) {
+  const [existing, setExisting] = useState<FollowUp | null>(null);
+  const [receivables, setReceivables] = useState<ApiReceivable[]>([]);
+  const [customerId, setCustomerId] = useState("");
+  const [receivableId, setReceivableId] = useState("");
+  const [date, setDate] = useState(() => {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  });
+  const [notes, setNotes] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        setError("");
+
+        const [allReceivables, allFollowUps] = await Promise.all([
+          listReceivables(),
+          getFollowUps(),
+        ]);
+
+        if (cancelled) return;
+
+        setReceivables(allReceivables);
+
+        if (isEdit) {
+            const found = allFollowUps.find(
+  (item) => item.id === Number(id),
+);
+
+          if (!found) {
+            setError("Follow-up not found.");
+          } else {
+            setExisting(found);
+            setCustomerId(String(found.customerId));
+            setReceivableId(
+              found.receivableId === null ? "" : String(found.receivableId),
+            );
+
+            const parsed = new Date(found.date);
+            if (!Number.isNaN(parsed.getTime())) {
+              const local = new Date(
+                parsed.getTime() - parsed.getTimezoneOffset() * 60000,
+              );
+              setDate(local.toISOString().slice(0, 16));
+            }
+
+            setNotes(found.notes);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Could not load the follow-up form. Please try again.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, id]);
+
+  const availableReceivables = receivables.filter(
+    (item) => item.customer_detail.id === Number(customerId),
+  );
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+
+    if (!customerId || !date || !notes.trim()) {
+      setError("Please select a customer, enter the contact date and time, and add notes.");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const input = {
+        customerId: Number(customerId),
+        receivableId: receivableId ? Number(receivableId) : null,
+        date: new Date(date).toISOString(),
+        notes: notes.trim(),
+      };
+
+      if (existing) {
+        await updateFollowUp(existing.id, input);
+        setSaveFeedback("Follow-up changes saved.");
+      } else {
+        await addFollowUp(input);
+        setSaveFeedback("Follow-up contact recorded.");
+      }
+
+      navigate("/follow-ups");
+    } catch {
+      setError("Could not save the follow-up. Check your entries and try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading || customersLoading) {
     return (
       <section className="content-page">
         <div className="customer-empty">
-          <strong>Follow-up not found</strong>
-          <p>This follow-up may have been removed.</p>
-          <Link to="/follow-ups" className="secondary-button">Back to follow-ups</Link>
+          <p>Loading follow-up form...</p>
         </div>
       </section>
     );
   }
 
-  const availableReceivables = receivableOptions.filter(
-    (option) => option.customerId === customerId,
-  );
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const customer = customerOptions.find((option) => option.id === customerId);
-    if (!customer || !receivable) return;
-
-    const followUp = {
-      customerId,
-      customer: customer.name,
-      receivable,
-      date,
-      method,
-      status,
-      notes,
-    };
-
-    if (existing) {
-      updateFollowUp(existing.id, followUp);
-      setSaveFeedback("Follow-up changes saved.");
-    } else {
-      addFollowUp(followUp);
-      setSaveFeedback("Follow-up scheduled.");
-    }
-    navigate("/follow-ups");
-  };
+  if (error === "Follow-up not found.") {
+    return (
+      <section className="content-page">
+        <div className="customer-empty">
+          <strong>Follow-up not found</strong>
+          <p>This record may not exist or may no longer be available.</p>
+          <Link to="/follow-ups" className="secondary-button">
+            Back to follow-ups
+          </Link>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="content-page">
@@ -88,21 +167,25 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
           </Link>
 
           <p className="eyebrow">FOLLOW-UPS</p>
-          <h1>{isEdit ? "Edit follow-up" : "Add Follow-up"}</h1>
+          <h1>{isEdit ? "Edit follow-up" : "Record Follow-up"}</h1>
 
           <p className="page-description">
-            {isEdit
-              ? "Update the customer payment follow-up details."
-              : "Plan the next customer follow-up and contact method."}
+            Record a customer contact and any payment-related notes.
           </p>
         </div>
       </div>
 
       <form className="form-card" onSubmit={handleSubmit}>
         <div className="form-section-header">
-          <h2>Follow-up plan</h2>
-          <p>Set the customer, receivable, follow-up date, and contact method.</p>
+          <h2>Contact details</h2>
+          <p>Select the customer and record what happened.</p>
         </div>
+
+        {error && (
+          <div className="customer-empty" role="alert">
+            <strong>{error}</strong>
+          </div>
+        )}
 
         <div className="form-grid">
           <div className="form-group">
@@ -113,11 +196,11 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
               required
               onChange={(event) => {
                 setCustomerId(event.target.value);
-                setReceivable("");
+                setReceivableId("");
               }}
             >
-              <option value="" disabled>Select customer</option>
-              {customerOptions.map((customer) => (
+              <option value="">Select customer</option>
+              {customers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {customer.name}
                 </option>
@@ -126,69 +209,45 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
           </div>
 
           <div className="form-group">
-            <label htmlFor="followup-receivable">Related receivable</label>
+            <label htmlFor="followup-receivable">
+              Related receivable (optional)
+            </label>
             <select
               id="followup-receivable"
-              value={receivable}
-              required
+              value={receivableId}
               disabled={!customerId}
-              onChange={(event) => setReceivable(event.target.value)}
+              onChange={(event) => setReceivableId(event.target.value)}
             >
-              <option value="" disabled>Select receivable</option>
-              {availableReceivables.map((option) => (
-                <option key={option.label} value={option.label}>{option.label}</option>
+              <option value="">No related receivable</option>
+              {availableReceivables.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.reference || item.description || `Receivable #${item.id}`}
+                  {" — "}
+                  {item.currency} {item.remaining_amount}
+                </option>
               ))}
             </select>
           </div>
 
           <div className="form-group">
-            <label htmlFor="followup-date">Follow-up date</label>
+            <label htmlFor="followup-date">Contact date and time</label>
             <input
               id="followup-date"
-              type="date"
+              type="datetime-local"
               value={date}
               required
               onChange={(event) => setDate(event.target.value)}
             />
           </div>
 
-          <div className="form-group">
-            <label htmlFor="followup-method">Contact method</label>
-            <select
-              id="followup-method"
-              value={method}
-              required
-              onChange={(event) => setMethod(event.target.value as ContactMethod)}
-            >
-              <option value="WhatsApp">WhatsApp</option>
-              <option value="Phone Call">Phone Call</option>
-              <option value="SMS">SMS</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="followup-status">Status</label>
-            <select
-              id="followup-status"
-              value={status}
-              required
-              onChange={(event) => setStatus(event.target.value as FollowUpStatus)}
-            >
-              <option value="Upcoming">Upcoming</option>
-              <option value="Due Today">Due Today</option>
-              <option value="Overdue">Overdue</option>
-              <option value="Completed">Completed</option>
-            </select>
-          </div>
-
           <div className="form-group full-width">
-            <label htmlFor="followup-notes">Notes</label>
+            <label htmlFor="followup-notes">Contact notes</label>
             <textarea
               id="followup-notes"
               rows={4}
-              placeholder="Add notes for the follow-up..."
+              placeholder="What did the customer say? Was a payment date agreed?"
               value={notes}
+              required
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
@@ -199,8 +258,16 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
             Cancel
           </Link>
 
-          <button type="submit" className="primary-button">
-            {isEdit ? "Save changes" : "Save follow-up"}
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={saving}
+          >
+            {saving
+              ? "Saving..."
+              : isEdit
+                ? "Save changes"
+                : "Record follow-up"}
           </button>
         </div>
       </form>

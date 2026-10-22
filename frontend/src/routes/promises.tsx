@@ -1,29 +1,106 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { EntityModal } from "../components/EntityModal";
 import { SaveFeedback } from "../components/SaveFeedback";
-import { deletePromise, getPromises, type PaymentPromise } from "../data/promises";
+import {
+  cancelPromiseById,
+  listPromises,
+  promiseStatusInfo,
+  type ApiPromise,
+} from "../data/promises";
+
+const formatCurrency = (amount: string | number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(amount));
+
+const formatDate = (date: string) =>
+  new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 
 export function PromisesPage() {
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [promises, setPromises] = useState(getPromises);
-  const [selectedPromise, setSelectedPromise] = useState<PaymentPromise | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [promises, setPromises] = useState<ApiPromise[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [selected, setSelected] = useState<ApiPromise | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
-  const formatDate = (date: string) =>
-    new Date(`${date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const refreshPromises = () => setPromises(getPromises());
+  useEffect(() => {
+    let active = true;
+    listPromises()
+      .then((data) => {
+        if (active) setPromises(data);
+      })
+      .catch((e) => {
+        if (active)
+          setError(e instanceof Error ? e.message : "Could not load promises.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [refreshKey]);
 
   const filteredPromises =
-    statusFilter === "All"
+    statusFilter === "all"
       ? promises
-      : promises.filter((promise) => promise.status === statusFilter);
+      : promises.filter(
+          (promise) => promiseStatusInfo(promise.status).key === statusFilter,
+        );
 
-  const totalPromised = promises.reduce((total, promise) => total + promise.amount, 0);
-  const upcomingCount = promises.filter((promise) => promise.status === "Upcoming").length;
-  const overdueCount = promises.filter((promise) => promise.status === "Overdue").length;
+  const activePromises = promises.filter(
+    (promise) => promiseStatusInfo(promise.status).key !== "cancelled",
+  );
+  const totalPromised = activePromises.reduce(
+    (total, promise) => total + Number(promise.amount),
+    0,
+  );
+  const pendingCount = promises.filter(
+    (promise) => promiseStatusInfo(promise.status).key === "pending",
+  ).length;
+  const brokenCount = promises.filter(
+    (promise) => promiseStatusInfo(promise.status).key === "broken",
+  ).length;
+
+  function closeAll() {
+    setSelected(null);
+    setConfirmingCancel(false);
+    setCancelReason("");
+    setCancelError("");
+  }
+
+  async function handleCancel() {
+    if (!selected) return;
+    if (cancelReason.trim().length < 3) {
+      setCancelError("Please enter a reason (at least 3 characters).");
+      return;
+    }
+    setCancelling(true);
+    setCancelError("");
+    try {
+      await cancelPromiseById(selected.id, cancelReason);
+      closeAll();
+      setRefreshKey((key) => key + 1);
+    } catch (e) {
+      setCancelError(
+        e instanceof Error ? e.message : "Could not cancel the promise.",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <section className="content-page">
@@ -51,15 +128,15 @@ export function PromisesPage() {
         </article>
 
         <article className="stat-card">
-          <span>Upcoming</span>
-          <strong>{upcomingCount}</strong>
+          <span>Pending</span>
+          <strong>{pendingCount}</strong>
           <small>Promises still expected</small>
         </article>
 
         <article className="stat-card">
-          <span>Overdue</span>
-          <strong>{overdueCount}</strong>
-          <small>Requires attention</small>
+          <span>Broken</span>
+          <strong>{brokenCount}</strong>
+          <small>Past the date and not paid</small>
         </article>
       </div>
 
@@ -75,134 +152,159 @@ export function PromisesPage() {
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
           >
-            <option value="All">All statuses</option>
-            <option value="Upcoming">Upcoming</option>
-            <option value="Overdue">Overdue</option>
+            <option value="all">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="broken">Broken</option>
+            <option value="kept">Kept</option>
+            <option value="cancelled">Cancelled</option>
           </select>
         </div>
 
         <div className="promise-list">
-          {filteredPromises.map((promise) => (
-            <div className="promise-row" key={promise.id}>
-              <div className="promise-customer">
-                <div className="customer-avatar">
-                  {promise.customer.charAt(0)}
-                </div>
+          {loading && <p>Loading...</p>}
+          {error && <p style={{ color: "#b42318", fontSize: 12 }}>{error}</p>}
 
-                <div>
-                  <Link
-                    to={`/customers/${promise.customerId}`}
-                    className="customer-name-link"
+          {!loading &&
+            filteredPromises.map((promise) => {
+              const info = promiseStatusInfo(promise.status);
+              return (
+                <div className="promise-row" key={promise.id}>
+                  <div className="promise-customer">
+                    <div className="customer-avatar">
+                      {promise.customer_name.charAt(0).toUpperCase()}
+                    </div>
+
+                    <div>
+                      <Link
+                        to={`/customers/${promise.customer_id}`}
+                        className="customer-name-link"
+                      >
+                        {promise.customer_name}
+                      </Link>
+
+                      <span>{promise.note || "Payment commitment"}</span>
+                    </div>
+                  </div>
+
+                  <div className="promise-info">
+                    <span>Promised amount</span>
+                    <strong>{formatCurrency(promise.amount)}</strong>
+                  </div>
+
+                  <div className="promise-info">
+                    <span>Promise date</span>
+                    <strong>{formatDate(promise.promised_on)}</strong>
+                  </div>
+
+                  <span className={`promise-status ${info.className}`}>
+                    {info.label}
+                  </span>
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setSelected(promise)}
                   >
-                    {promise.customer}
-                  </Link>
-
-                  <span>Payment commitment</span>
+                    View
+                  </button>
                 </div>
-              </div>
+              );
+            })}
 
-              <div className="promise-info">
-                <span>Promised amount</span>
-                <strong>{formatCurrency(promise.amount)}</strong>
-              </div>
-
-              <div className="promise-info">
-                <span>Promise date</span>
-                <strong>{formatDate(promise.promiseDate)}</strong>
-              </div>
-
-              <span
-                className={
-                  promise.status === "Overdue"
-                    ? "promise-status overdue"
-                    : "promise-status upcoming"
-                }
-              >
-                {promise.status}
-              </span>
-
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setSelectedPromise(promise)}
-              >
-                View
-              </button>
-            </div>
-          ))}
-
-          {filteredPromises.length === 0 && (
+          {!loading && !error && filteredPromises.length === 0 && (
             <div className="customer-empty">
               <strong>No promises found</strong>
-              <p>No payment promises match the selected status.</p>
+              <p>
+                {promises.length === 0
+                  ? "Add your first payment promise to get started."
+                  : "No payment promises match the selected status."}
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {selectedPromise && !confirmingDelete && (
+      {selected && !confirmingCancel && (
         <EntityModal
           title="Payment promise details"
-          description={`${selectedPromise.customer} promised ${formatCurrency(selectedPromise.amount)} by ${formatDate(selectedPromise.promiseDate)}.`}
-          onClose={() => setSelectedPromise(null)}
+          description={`${selected.customer_name} promised ${formatCurrency(selected.amount)} by ${formatDate(selected.promised_on)}.`}
+          onClose={closeAll}
         >
           <div className="entity-modal-details">
-            <div><span>Customer</span><strong>{selectedPromise.customer}</strong></div>
-            <div><span>Promised amount</span><strong>{formatCurrency(selectedPromise.amount)}</strong></div>
-            <div><span>Promise date</span><strong>{formatDate(selectedPromise.promiseDate)}</strong></div>
-            <div><span>Status</span><strong>{selectedPromise.status}</strong></div>
+            <div><span>Customer</span><strong>{selected.customer_name}</strong></div>
+            <div><span>Promised amount</span><strong>{formatCurrency(selected.amount)}</strong></div>
+            <div><span>Paid so far</span><strong>{formatCurrency(selected.paid_amount)}</strong></div>
+            <div><span>Remaining</span><strong>{formatCurrency(selected.remaining_amount)}</strong></div>
+            <div><span>Promise date</span><strong>{formatDate(selected.promised_on)}</strong></div>
+            <div><span>Status</span><strong>{promiseStatusInfo(selected.status).label}</strong></div>
+            <div><span>Note</span><strong>{selected.note || "—"}</strong></div>
+            {selected.cancelled_at && (
+              <div><span>Cancel reason</span><strong>{selected.cancel_reason || "—"}</strong></div>
+            )}
           </div>
           <div className="entity-modal-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setSelectedPromise(null)}
-            >
+            <button type="button" className="secondary-button" onClick={closeAll}>
               Close
             </button>
-            <Link
-              to={`/promises/${selectedPromise.id}/edit`}
-              className="secondary-button"
-              onClick={() => setSelectedPromise(null)}
-            >
-              Edit promise
-            </Link>
-            <button
-              type="button"
-              className="danger-button"
-              onClick={() => setConfirmingDelete(true)}
-            >
-              Delete promise
-            </button>
+            {!selected.cancelled_at && (
+              <>
+                <Link
+                  to={`/promises/${selected.id}/edit`}
+                  className="secondary-button"
+                  onClick={closeAll}
+                >
+                  Edit promise
+                </Link>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => {
+                    setCancelError("");
+                    setConfirmingCancel(true);
+                  }}
+                >
+                  Cancel promise
+                </button>
+              </>
+            )}
           </div>
         </EntityModal>
       )}
 
-      {selectedPromise && confirmingDelete && (
+      {selected && confirmingCancel && (
         <EntityModal
-          title="Delete payment promise?"
-          description={`Delete ${selectedPromise.customer}'s promise of ${formatCurrency(selectedPromise.amount)} due ${formatDate(selectedPromise.promiseDate)}? This action cannot be undone.`}
-          onClose={() => setConfirmingDelete(false)}
+          title="Cancel payment promise?"
+          description={`Cancel ${selected.customer_name}'s promise of ${formatCurrency(selected.amount)} due ${formatDate(selected.promised_on)}? A cancelled promise cannot be edited.`}
+          onClose={() => setConfirmingCancel(false)}
         >
+          <div className="form-group">
+            <label htmlFor="cancel-reason">Reason</label>
+            <textarea
+              id="cancel-reason"
+              rows={3}
+              placeholder="Why is this promise being cancelled?"
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+            />
+          </div>
+          {cancelError && (
+            <p style={{ color: "#b42318", fontSize: 12 }}>{cancelError}</p>
+          )}
           <div className="entity-modal-actions">
             <button
               type="button"
               className="secondary-button"
-              onClick={() => setConfirmingDelete(false)}
+              onClick={() => setConfirmingCancel(false)}
             >
-              Cancel
+              Back
             </button>
             <button
               type="button"
               className="danger-button"
-              onClick={() => {
-                deletePromise(selectedPromise.id);
-                refreshPromises();
-                setConfirmingDelete(false);
-                setSelectedPromise(null);
-              }}
+              onClick={handleCancel}
+              disabled={cancelling}
             >
-              Delete promise
+              {cancelling ? "Cancelling..." : "Cancel promise"}
             </button>
           </div>
         </EntityModal>

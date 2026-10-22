@@ -1,186 +1,210 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { addCustomer, getCustomer, updateCustomer } from "../data/customers";
-import { setSaveFeedback } from "../data/save-feedback";
+import { ApiError } from "../api/client";
+import {
+  createCustomer,
+  getCustomerById,
+  updateCustomerById,
+} from "../data/customers";
 
-export function AddCustomerPage() {
-  return <CustomerFormScreen isEdit={false} />;
-}
+const countries = [{ code: "LB", name: "Lebanon" }];
 
-export function EditCustomerPage() {
-  return <CustomerFormScreen isEdit={true} />;
-}
+const errorStyle = { color: "#b42318", fontSize: "11px", margin: 0 };
 
-function CustomerFormScreen({ isEdit }: { isEdit: boolean }) {
-  const { customerId } = useParams();
+function CustomerForm({ customerId }: { customerId?: string }) {
   const navigate = useNavigate();
-  const existing = isEdit && customerId ? getCustomer(customerId) : undefined;
-  const [name, setName] = useState(existing?.name ?? "");
-  const [phone, setPhone] = useState(existing?.phone ?? "");
-  const [email, setEmail] = useState(existing?.email ?? "");
-  const [country, setCountry] = useState(existing?.country ?? "");
-  const [address, setAddress] = useState(existing?.address ?? "");
-  const [notes, setNotes] = useState(existing?.notes ?? "");
+  const [name, setName] = useState("");
+  const [country, setCountry] = useState("LB");
+  const [phone, setPhone] = useState("");
+  const [originalPhone, setOriginalPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [nextFollowUp, setNextFollowUp] = useState("");
+  const [loading, setLoading] = useState(Boolean(customerId));
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  if (isEdit && !existing) {
-    return (
-      <section className="content-page">
-        <div className="customer-empty">
-          <strong>Customer not found</strong>
-          <p>This customer may have been removed.</p>
-          <Link to="/customers" className="secondary-button">Back to customers</Link>
-        </div>
-      </section>
-    );
+  useEffect(() => {
+    if (!customerId) return;
+    let active = true;
+    getCustomerById(customerId)
+      .then((customer) => {
+        if (!active) return;
+        setName(customer.name);
+        setPhone(customer.phone_e164);
+        setOriginalPhone(customer.phone_e164);
+        setEmail(customer.email ?? "");
+        setNotes(customer.notes ?? "");
+        setNextFollowUp(customer.next_follow_up_on ?? "");
+      })
+      .catch((e) => {
+        if (!active) return;
+        setLoadFailed(true);
+        setError(e instanceof Error ? e.message : "Could not load customer.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [customerId]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setFieldErrors({});
+    try {
+      const input = {
+        name,
+        country,
+        phone,
+        email,
+        notes,
+        next_follow_up_on: nextFollowUp,
+      };
+      if (customerId) {
+        await updateCustomerById(
+          customerId,
+          input,
+          phone.trim() !== originalPhone,
+        );
+      } else {
+        await createCustomer(input);
+      }
+      navigate("/customers");
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setError(e.message);
+        setFieldErrors(e.fields);
+      } else {
+        setError("Could not save the customer.");
+      }
+    } finally {
+      setSaving(false);
+    }
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const invalidRequiredField = [
-      { id: "customer-name", value: name, label: "a customer name" },
-      { id: "customer-phone", value: phone, label: "a phone number" },
-      { id: "customer-country", value: country, label: "a country" },
-    ].find((field) => !field.value.trim());
-    if (invalidRequiredField) {
-      const input = event.currentTarget.elements.namedItem(invalidRequiredField.id) as HTMLInputElement;
-      input.setCustomValidity(`Please enter ${invalidRequiredField.label}.`);
-      input.reportValidity();
-      return;
-    }
-
-    const customer = { name: name.trim(), phone: phone.trim(), email: email.trim(), country: country.trim(), address: address.trim(), notes: notes.trim() };
-    if (existing && customerId) {
-      updateCustomer(customerId, customer);
-      setSaveFeedback("Customer changes saved.");
-      navigate(`/customers/${customerId}`);
-    } else {
-      addCustomer(customer);
-      setSaveFeedback("Customer added.");
-      navigate("/customers");
-    }
-  };
+  const phoneError =
+    fieldErrors.phone ??
+    fieldErrors.phone_e164 ??
+    fieldErrors.phone_national_number;
 
   return (
     <section className="content-page">
-      <div className="form-page-header">
-        <div>
-          <Link to={existing ? `/customers/${customerId}` : "/customers"} className="back-link">
-            ← Back to customers
-          </Link>
-
-          <p className="eyebrow">CUSTOMERS</p>
-          <h1>{isEdit ? "Edit customer" : "Add customer"}</h1>
-
-          <p className="page-description">
-            {isEdit
-              ? "Update the customer information below."
-              : "Enter the customer information below."}
-          </p>
-        </div>
+      <div>
+        <Link to="/customers" className="back-link">
+          ← Back to customers
+        </Link>
+        <p className="eyebrow">CUSTOMERS</p>
+        <h1>{customerId ? "Edit customer" : "Add customer"}</h1>
       </div>
 
-      <form className="form-card" onSubmit={handleSubmit}>
-        <div className="form-section-header">
-          <h2>Customer information</h2>
-          <p>
-            {isEdit
-              ? "Update the basic information for this customer."
-              : "Add the basic information needed to identify and contact the customer."}
-          </p>
+      {loading ? (
+        <div className="form-card">Loading...</div>
+      ) : loadFailed ? (
+        <div className="form-card">
+          <strong>Customer not found</strong>
+          <p style={errorStyle}>{error}</p>
         </div>
+      ) : (
+        <form className="form-card" onSubmit={handleSubmit}>
+          {error && <p style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
 
-        <div className="form-grid">
-          <div className="form-group full-width">
-            <label htmlFor="customer-name">Customer name</label>
-            <input
-              id="customer-name"
-              type="text"
-              placeholder="Enter customer name"
-              value={name}
-              required
-              onChange={(event) => {
-                event.target.setCustomValidity("");
-                setName(event.target.value);
-              }}
-            />
+          <div className="form-grid">
+            <div className="form-group">
+              <label htmlFor="customer-name">Name</label>
+              <input
+                id="customer-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+              {fieldErrors.name && <p style={errorStyle}>{fieldErrors.name}</p>}
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="customer-country">Country</label>
+              <select
+                id="customer-country"
+                value={country}
+                onChange={(event) => setCountry(event.target.value)}
+              >
+                {countries.map((item) => (
+                  <option key={item.code} value={item.code}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="customer-phone">Phone number</label>
+              <input
+                id="customer-phone"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="70 123 456 or +96170123456"
+                required
+              />
+              {phoneError && <p style={errorStyle}>{phoneError}</p>}
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="customer-email">Email (optional)</label>
+              <input
+                id="customer-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+              {fieldErrors.email && (
+                <p style={errorStyle}>{fieldErrors.email}</p>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="customer-follow-up">Next follow-up (optional)</label>
+              <input
+                id="customer-follow-up"
+                type="date"
+                value={nextFollowUp}
+                onChange={(event) => setNextFollowUp(event.target.value)}
+              />
+            </div>
+
+            <div className="form-group full-width">
+              <label htmlFor="customer-notes">Notes (optional)</label>
+              <textarea
+                id="customer-notes"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+              />
+            </div>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="customer-phone">Phone number</label>
-            <input
-              id="customer-phone"
-              type="tel"
-              placeholder="+961 70 000 000"
-              value={phone}
-              pattern="[\d+\(\)\s\-]{7,}"
-              title="Enter a valid phone number."
-              required
-              onChange={(event) => {
-                event.target.setCustomValidity("");
-                setPhone(event.target.value);
-              }}
-            />
+          <div className="form-actions">
+            <Link to="/customers" className="secondary-button">
+              Cancel
+            </Link>
+            <button type="submit" className="primary-button" disabled={saving}>
+              {saving ? "Saving..." : customerId ? "Save changes" : "Add customer"}
+            </button>
           </div>
-
-          <div className="form-group">
-            <label htmlFor="customer-email">Email address</label>
-            <input
-              id="customer-email"
-              type="email"
-              placeholder="customer@example.com"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="customer-country">Country</label>
-            <input
-              id="customer-country"
-              type="text"
-              placeholder="Lebanon"
-              value={country}
-              required
-              onChange={(event) => {
-                event.target.setCustomValidity("");
-                setCountry(event.target.value);
-              }}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="customer-address">Address</label>
-            <input
-              id="customer-address"
-              type="text"
-              placeholder="Enter customer address"
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-            />
-          </div>
-
-          <div className="form-group full-width">
-            <label htmlFor="customer-notes">Notes</label>
-            <textarea
-              id="customer-notes"
-              placeholder="Add optional notes about this customer..."
-              rows={4}
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="form-actions">
-          <Link to={existing ? `/customers/${customerId}` : "/customers"} className="secondary-button form-button">
-            Cancel
-          </Link>
-
-          <button className="primary-button" type="submit">
-            {isEdit ? "Save changes" : "Save customer"}
-          </button>
-        </div>
-      </form>
+        </form>
+      )}
     </section>
   );
+}
+
+export function AddCustomerPage() {
+  return <CustomerForm />;
+}
+
+export function EditCustomerPage() {
+  const { id } = useParams();
+  return <CustomerForm customerId={id} />;
 }

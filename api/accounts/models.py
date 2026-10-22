@@ -20,6 +20,19 @@ class UserManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
+    def create_superuser(self, email, password=None, **extra_fields):
+        from businesses.models import Business
+        extra_fields.setdefault("role", "OWNER")
+        extra_fields.setdefault("is_staff", True)
+        if not extra_fields.get("business") and not extra_fields.get("business_id"):
+            business, _ = Business.objects.get_or_create(
+                name="Platform Admin Business",
+                defaults={"base_currency": "USD", "timezone": "Asia/Beirut"},
+            )
+            extra_fields["business"] = business
+        return self.create_user(email, password, **extra_fields)
+
+
 
 class User(AbstractBaseUser):
     class Role(models.TextChoices):
@@ -32,7 +45,7 @@ class User(AbstractBaseUser):
         on_delete=models.PROTECT,
         related_name="users",
     )
-    email = models.EmailField(max_length=254)
+    email = models.EmailField(max_length=254, unique=True)
     password = models.CharField(max_length=128, db_column="password_hash")
     full_name = models.CharField(max_length=150)
     role = models.CharField(max_length=10, choices=Role.choices)
