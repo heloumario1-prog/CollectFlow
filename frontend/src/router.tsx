@@ -7,7 +7,6 @@ import {
 import { WelcomePage } from "./screens/welcome/WelcomePage";
 import { AppLayout } from "./components/AppLayout";
 import { DashboardPage } from "./screens/dashboard/DashboardPage";
-import { FeaturePreviewPage } from "./screens/dashboard/FeaturePreviewPage";
 import { dashboardLoader } from "./screens/dashboard/loader";
 import { ApiError } from "./api/client";
 import { AuthLayout } from "./screens/auth/AuthLayout";
@@ -28,6 +27,18 @@ import { profileAction } from "./screens/profile/action";
 import { BusinessPage } from "./screens/business/BusinessPage";
 import { businessLoader } from "./screens/business/loader";
 import { businessAction } from "./screens/business/action";
+import { CustomersPage } from "./routes/customers";
+import { AddCustomerPage, EditCustomerPage } from "./routes/customer-form";
+import { CustomerDetailsPage } from "./routes/customer-details";
+import { ReceivablesPage } from "./routes/receivables";
+import { AddReceivablePage, EditReceivablePage } from "./routes/receivable-form";
+import { PromisesPage } from "./routes/promises";
+import { AddPromisePage, EditPromisePage } from "./routes/promise-form";
+import { PaymentsPage } from "./routes/payments";
+import { RecordPaymentPage, EditPaymentPage } from "./routes/payment-form";
+import { FollowUpsPage } from "./routes/follow-ups";
+import { AddFollowUpPage, EditFollowUpPage } from "./routes/follow-up-form";
+
 function UnavailablePage() {
   return (
     <main className="grid min-h-screen place-content-center gap-6 bg-quest-background p-8 text-center font-quest-body text-quest-parchment">
@@ -104,12 +115,22 @@ export const router = createBrowserRouter([
     ErrorBoundary: AppErrorPage,
     children: [
       { path: "/dashboard", Component: DashboardPage, action: logoutAction },
-      { path: "/customers", Component: FeaturePreviewPage },
-      { path: "/customers/new", Component: FeaturePreviewPage },
-      { path: "/receivables", Component: FeaturePreviewPage },
-      { path: "/promises", Component: FeaturePreviewPage },
-      { path: "/payments", Component: FeaturePreviewPage },
-      { path: "/follow-ups", Component: FeaturePreviewPage },
+      { path: "/customers", Component: CustomersPage },
+      { path: "/customers/new", Component: AddCustomerPage },
+      { path: "/customers/:id", Component: CustomerDetailsPage },
+      { path: "/customers/:id/edit", Component: EditCustomerPage },
+      { path: "/receivables", Component: ReceivablesPage },
+      { path: "/receivables/new", Component: AddReceivablePage },
+      { path: "/receivables/:id/edit", Component: EditReceivablePage },
+      { path: "/promises", Component: PromisesPage },
+      { path: "/promises/new", Component: AddPromisePage },
+      { path: "/promises/:id/edit", Component: EditPromisePage },
+      { path: "/payments", Component: PaymentsPage },
+      { path: "/payments/new", Component: RecordPaymentPage },
+      { path: "/payments/:id/edit", Component: EditPaymentPage },
+      { path: "/follow-ups", Component: FollowUpsPage },
+      { path: "/follow-ups/new", Component: AddFollowUpPage },
+      { path: "/follow-ups/:id/edit", Component: EditFollowUpPage },
       {
         path: "/staff",
         Component: StaffPage,

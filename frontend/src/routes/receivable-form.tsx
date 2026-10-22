@@ -1,13 +1,17 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { customerOptions } from "../data/customers";
+import { ApiError } from "../api/client";
+import { useCustomerOptions } from "../data/customers";
 import {
-  addReceivable,
-  getReceivable,
-  updateReceivable,
-  type ReceivableStatus,
+  createReceivable,
+  getReceivableById,
+  updateReceivableById,
 } from "../data/receivables";
 import { setSaveFeedback } from "../data/save-feedback";
+
+const errorStyle = { color: "#b42318", fontSize: "11px", margin: 0 };
+
+const today = () => new Date().toLocaleDateString("en-CA");
 
 export function AddReceivablePage() {
   return <ReceivableFormScreen isEdit={false} />;
@@ -19,25 +23,49 @@ export function EditReceivablePage() {
 
 function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
   const navigate = useNavigate();
-  const { customerId: routeCustomerId, receivableId } = useParams();
-  const existing = isEdit && receivableId ? getReceivable(Number(receivableId)) : undefined;
-  const [customerId, setCustomerId] = useState(existing?.customerId ?? routeCustomerId ?? "");
-  const [amount, setAmount] = useState(existing ? String(existing.originalAmount) : "");
-  const [dueDate, setDueDate] = useState(existing?.dueDate ?? "");
-  const [status, setStatus] = useState<ReceivableStatus>(existing?.status ?? "Outstanding");
-  const [description, setDescription] = useState(existing?.description ?? "");
+  const params = useParams();
+  const routeCustomerId = params.customerId;
+  const receivableId = params.receivableId ?? params.id;
+  const { options: customerOptions } = useCustomerOptions();
 
-  if (isEdit && !existing) {
-    return (
-      <section className="content-page">
-        <div className="customer-empty">
-          <strong>Receivable not found</strong>
-          <p>This receivable may have been removed.</p>
-          <Link to="/receivables" className="secondary-button">Back to receivables</Link>
-        </div>
-      </section>
-    );
-  }
+  const [customerId, setCustomerId] = useState(routeCustomerId ?? "");
+  const [amount, setAmount] = useState("");
+  const [issueDate, setIssueDate] = useState(today());
+  const [dueDate, setDueDate] = useState("");
+  const [reference, setReference] = useState("");
+  const [description, setDescription] = useState("");
+
+  const [loading, setLoading] = useState(isEdit && Boolean(receivableId));
+  const [loadFailed, setLoadFailed] = useState(isEdit && !receivableId);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isEdit || !receivableId) return;
+    let active = true;
+    getReceivableById(receivableId)
+      .then((receivable) => {
+        if (!active) return;
+        setCustomerId(String(receivable.customer_detail.id));
+        setAmount(receivable.original_amount);
+        setIssueDate(receivable.issue_date);
+        setDueDate(receivable.due_date);
+        setReference(receivable.reference ?? "");
+        setDescription(receivable.description ?? "");
+      })
+      .catch((e) => {
+        if (!active) return;
+        setLoadFailed(true);
+        setError(e instanceof Error ? e.message : "Could not load receivable.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isEdit, receivableId]);
 
   const cancelPath = isEdit
     ? "/receivables"
@@ -45,42 +73,67 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
       ? `/customers/${routeCustomerId}`
       : "/receivables";
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const customer = customerOptions.find((item) => item.id === customerId);
     const numericAmount = Number(amount);
-    if (!customer || !Number.isFinite(numericAmount) || numericAmount <= 0) return;
-    if (!description.trim()) {
-      const input = event.currentTarget.elements.namedItem("receivable-description") as HTMLTextAreaElement;
-      input.setCustomValidity("Please enter a description.");
-      input.reportValidity();
+    if (!customerId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setError("Choose a customer and enter an amount greater than zero.");
       return;
     }
 
-    const receivable = {
-      customerId,
-      customer: customer.name,
-      description: description.trim(),
-      originalAmount: numericAmount,
-      outstanding: existing && existing.status === status && existing.originalAmount === numericAmount
-        ? existing.outstanding
-        : status === "Paid"
-          ? 0
-          : status === "Partially paid"
-            ? Math.round(numericAmount / 2 * 100) / 100
-            : numericAmount,
-      dueDate,
-      status,
-    };
-    if (existing) {
-      updateReceivable(existing.id, receivable);
-      setSaveFeedback("Receivable changes saved.");
-    } else {
-      addReceivable(receivable);
-      setSaveFeedback("Receivable added.");
+    setSaving(true);
+    setError("");
+    setFieldErrors({});
+    try {
+      const input = {
+        customer: Number(customerId),
+        original_amount: numericAmount.toFixed(2),
+        issue_date: issueDate,
+        due_date: dueDate,
+        reference,
+        description,
+      };
+      if (isEdit && receivableId) {
+        await updateReceivableById(receivableId, input);
+        setSaveFeedback("Receivable changes saved.");
+      } else {
+        await createReceivable(input);
+        setSaveFeedback("Receivable added.");
+      }
+      navigate("/receivables");
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setError(e.message);
+        setFieldErrors(e.fields);
+      } else {
+        setError("Could not save the receivable.");
+      }
+    } finally {
+      setSaving(false);
     }
-    navigate("/receivables");
-  };
+  }
+
+  if (loading) {
+    return (
+      <section className="content-page">
+        <div className="form-card">Loading...</div>
+      </section>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <section className="content-page">
+        <div className="customer-empty">
+          <strong>Receivable not found</strong>
+          <p>{error || "This receivable may have been removed."}</p>
+          <Link to="/receivables" className="secondary-button">
+            Back to receivables
+          </Link>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="content-page">
@@ -105,6 +158,8 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
           <p>Capture the customer, amount, and due date for this receivable.</p>
         </div>
 
+        {error && <p style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
+
         <div className="form-grid">
           <div className="form-group">
             <label htmlFor="receivable-customer">Customer</label>
@@ -116,13 +171,16 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
             >
               <option value="" disabled>Select customer</option>
               {customerOptions.map((customer) => (
-                <option key={customer.id} value={customer.id}>{customer.name}</option>
+                <option key={customer.id} value={String(customer.id)}>
+                  {customer.name}
+                </option>
               ))}
             </select>
+            {fieldErrors.customer && <p style={errorStyle}>{fieldErrors.customer}</p>}
           </div>
 
           <div className="form-group">
-            <label htmlFor="receivable-amount">Amount</label>
+            <label htmlFor="receivable-amount">Amount (USD)</label>
             <input
               id="receivable-amount"
               type="number"
@@ -133,6 +191,21 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
               required
               onChange={(event) => setAmount(event.target.value)}
             />
+            {fieldErrors.original_amount && (
+              <p style={errorStyle}>{fieldErrors.original_amount}</p>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="receivable-issue-date">Issue date</label>
+            <input
+              id="receivable-issue-date"
+              type="date"
+              value={issueDate}
+              required
+              onChange={(event) => setIssueDate(event.target.value)}
+            />
+            {fieldErrors.issue_date && <p style={errorStyle}>{fieldErrors.issue_date}</p>}
           </div>
 
           <div className="form-group">
@@ -144,20 +217,18 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
               required
               onChange={(event) => setDueDate(event.target.value)}
             />
+            {fieldErrors.due_date && <p style={errorStyle}>{fieldErrors.due_date}</p>}
           </div>
 
-          <div className="form-group">
-            <label htmlFor="receivable-status">Status</label>
-            <select
-              id="receivable-status"
-              className={`status-select ${status.toLowerCase().replace(/\s+/g, "-")}`}
-              value={status}
-              onChange={(event) => setStatus(event.target.value as ReceivableStatus)}
-            >
-              <option value="Outstanding">Outstanding</option>
-              <option value="Partially paid">Partially paid</option>
-              <option value="Paid">Paid</option>
-            </select>
+          <div className="form-group full-width">
+            <label htmlFor="receivable-reference">Reference (optional)</label>
+            <input
+              id="receivable-reference"
+              value={reference}
+              placeholder="Invoice number or reference"
+              onChange={(event) => setReference(event.target.value)}
+            />
+            {fieldErrors.reference && <p style={errorStyle}>{fieldErrors.reference}</p>}
           </div>
 
           <div className="form-group full-width">
@@ -168,18 +239,20 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
               placeholder="Describe this receivable..."
               value={description}
               required
-              onChange={(event) => {
-                event.target.setCustomValidity("");
-                setDescription(event.target.value);
-              }}
+              onChange={(event) => setDescription(event.target.value)}
             />
+            {fieldErrors.description && (
+              <p style={errorStyle}>{fieldErrors.description}</p>
+            )}
           </div>
         </div>
 
         <div className="form-actions">
-          <Link to={cancelPath} className="secondary-button form-button">Cancel</Link>
-          <button type="submit" className="primary-button">
-            {isEdit ? "Save changes" : "Save receivable"}
+          <Link to={cancelPath} className="secondary-button form-button">
+            Cancel
+          </Link>
+          <button type="submit" className="primary-button" disabled={saving}>
+            {saving ? "Saving..." : isEdit ? "Save changes" : "Save receivable"}
           </button>
         </div>
       </form>

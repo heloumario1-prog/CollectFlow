@@ -1,38 +1,70 @@
-import { useState } from "react";
+
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { EntityModal } from "../components/EntityModal";
-import {
-  deleteFollowUp,
-  getFollowUps,
-  type FollowUp,
-  updateFollowUp,
-} from "../data/follow-ups";
+import { getFollowUps, type FollowUp } from "../data/follow-ups";
 import { SaveFeedback } from "../components/SaveFeedback";
 
 export function FollowUpsPage() {
-  const [followUps, setFollowUps] = useState(getFollowUps);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [methodFilter, setMethodFilter] = useState("All");
-  const [selectedFollowUp, setSelectedFollowUp] = useState<FollowUp | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [selectedFollowUp, setSelectedFollowUp] =
+    useState<FollowUp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const filteredFollowUps = followUps.filter((followUp) => {
-    const matchesSearch = followUp.customer.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "All" || followUp.status === statusFilter;
-    const matchesMethod = methodFilter === "All" || followUp.method === methodFilter;
-    return matchesSearch && matchesStatus && matchesMethod;
-  });
+  useEffect(() => {
+    let cancelled = false;
 
-  const refreshFollowUps = () => setFollowUps(getFollowUps());
-  const statusClass = (status: FollowUp["status"]) =>
-    status.toLowerCase().replaceAll(" ", "-");
-  const displayDate = (date: string) =>
-    new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+    async function loadFollowUps() {
+      try {
+        setError("");
+        const data = await getFollowUps();
+
+        if (!cancelled) {
+          setFollowUps(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Could not load follow-ups. Please try again.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadFollowUps();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredFollowUps = followUps.filter((followUp) =>
+    followUp.customer.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const displayDate = (date: string) => {
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "Invalid date";
+    }
+
+    return parsedDate.toLocaleString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
     });
+  };
+
+  const withReceivable = followUps.filter(
+    (followUp) => followUp.receivableId !== null,
+  ).length;
 
   return (
     <section className="content-page">
@@ -41,35 +73,44 @@ export function FollowUpsPage() {
           <p className="eyebrow">FOLLOW-UPS</p>
           <h1>Follow-ups</h1>
           <p className="page-description">
-            Track and manage customer payment follow-ups.
+            Record and review customer payment follow-up contacts.
           </p>
         </div>
+
         <Link to="/follow-ups/new" className="primary-button">
-          + Add Follow-up
+          + Record Follow-up
         </Link>
       </div>
 
       <SaveFeedback />
 
       <div className="follow-up-summary">
-        {(["Due Today", "Upcoming", "Overdue", "Completed"] as const).map((status) => {
-          const count = followUps.filter((followUp) => followUp.status === status).length;
-          return (
-            <article className="stat-card" key={status}>
-              <span>{status}</span>
-              <strong>{count}</strong>
-              <small>{status === "Completed" ? "Follow-ups completed" : "Follow-ups scheduled"}</small>
-            </article>
-          );
-        })}
+        <article className="stat-card">
+          <span>Total contacts</span>
+          <strong>{followUps.length}</strong>
+          <small>Recorded follow-up contacts</small>
+        </article>
+
+        <article className="stat-card">
+          <span>Linked to receivables</span>
+          <strong>{withReceivable}</strong>
+          <small>Contacts linked to a receivable</small>
+        </article>
+
+        <article className="stat-card">
+          <span>General contacts</span>
+          <strong>{followUps.length - withReceivable}</strong>
+          <small>Contacts without a linked receivable</small>
+        </article>
       </div>
 
       <div className="content-panel follow-ups-panel">
         <div className="follow-ups-toolbar">
           <div className="follow-ups-toolbar-title">
-            <strong>Follow-up schedule</strong>
-            <span>{filteredFollowUps.length} follow-ups shown</span>
+            <strong>Follow-up history</strong>
+            <span>{filteredFollowUps.length} records shown</span>
           </div>
+
           <div className="follow-ups-filters">
             <input
               className="customer-search"
@@ -79,155 +120,153 @@ export function FollowUpsPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
-            <select
-              className="status-filter"
-              aria-label="Filter by status"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-            >
-              <option value="All">All statuses</option>
-              <option value="Upcoming">Upcoming</option>
-              <option value="Due Today">Due Today</option>
-              <option value="Overdue">Overdue</option>
-              <option value="Completed">Completed</option>
-            </select>
-            <select
-              className="status-filter"
-              aria-label="Filter by contact method"
-              value={methodFilter}
-              onChange={(event) => setMethodFilter(event.target.value)}
-            >
-              <option value="All">All methods</option>
-              <option value="WhatsApp">WhatsApp</option>
-              <option value="Phone Call">Phone Call</option>
-              <option value="SMS">SMS</option>
-              <option value="Other">Other</option>
-            </select>
           </div>
         </div>
 
-        <div className="follow-up-table-header" aria-hidden="true">
-          <span>Customer</span>
-          <span>Receivable</span>
-          <span>Due Date</span>
-          <span>Contact Method</span>
-          <span>Status</span>
-          <span>Actions</span>
-        </div>
+        {loading && (
+          <div className="customer-empty">
+            <p>Loading follow-ups...</p>
+          </div>
+        )}
 
-        <div className="follow-up-list">
-          {filteredFollowUps.map((followUp) => (
-            <div className="follow-up-row" key={followUp.id}>
-              <div className="follow-up-customer">
-                <span className="follow-up-cell-label">Customer</span>
-                <div className="customer-avatar">{followUp.customer.charAt(0)}</div>
-                <Link
-                  to={`/customers/${followUp.customerId}`}
-                  className="customer-name-link"
-                >
-                  {followUp.customer}
-                </Link>
-              </div>
-              <div className="follow-up-cell">
-                <span className="follow-up-cell-label">Receivable</span>
-                <strong>{followUp.receivable}</strong>
-              </div>
-              <div className="follow-up-cell">
-                <span className="follow-up-cell-label">Due Date</span>
-                <strong>{displayDate(followUp.date)}</strong>
-              </div>
-              <div className="follow-up-cell">
-                <span className="follow-up-cell-label">Contact Method</span>
-                <strong>{followUp.method}</strong>
-              </div>
-              <span className={`status-badge follow-up-status ${statusClass(followUp.status)}`}>
-                {followUp.status}
-              </span>
-              <div className="follow-up-actions">
-                <button type="button" className="secondary-button" onClick={() => setSelectedFollowUp(followUp)}>
-                  View
-                </button>
-                <Link to={`/follow-ups/${followUp.id}/edit`} className="secondary-button">
-                  Edit
-                </Link>
-                {followUp.status !== "Completed" && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => {
-                      updateFollowUp(followUp.id, { ...followUp, status: "Completed" });
-                      refreshFollowUps();
-                    }}
-                  >
-                    Mark completed
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() => {
-                    setSelectedFollowUp(followUp);
-                    setConfirmingDelete(true);
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
+        {!loading && error && (
+          <div className="customer-empty">
+            <strong>{error}</strong>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            <div className="follow-up-table-header">
+              <span>Customer</span>
+              <span>Receivable</span>
+              <span>Contact date</span>
+              <span>Notes</span>
+              <span>Actions</span>
             </div>
-          ))}
-          {filteredFollowUps.length === 0 && (
-            <div className="customer-empty">
-              <strong>No follow-ups found</strong>
-              <p>Try changing the search or filters to see more results.</p>
+
+            <div className="follow-up-list">
+              {filteredFollowUps.map((followUp) => (
+                <div className="follow-up-row" key={followUp.id}>
+                  <div className="follow-up-customer">
+                    <span className="follow-up-cell-label">Customer</span>
+
+                    <div className="customer-avatar">
+                      {followUp.customer.charAt(0)}
+                    </div>
+
+                    <Link
+                      to={`/customers/${followUp.customerId}`}
+                      className="customer-name-link"
+                    >
+                      {followUp.customer}
+                    </Link>
+                  </div>
+
+                  <div className="follow-up-cell">
+                    <span className="follow-up-cell-label">Receivable</span>
+                    <strong>{followUp.receivable}</strong>
+                  </div>
+
+                  <div className="follow-up-cell">
+                    <span className="follow-up-cell-label">Contact date</span>
+                    <strong>{displayDate(followUp.date)}</strong>
+                  </div>
+
+                  <div className="follow-up-cell">
+                    <span className="follow-up-cell-label">Notes</span>
+                    <strong>{followUp.notes || "No notes"}</strong>
+                  </div>
+
+                  <div className="follow-up-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setSelectedFollowUp(followUp)}
+                    >
+                      View
+                    </button>
+
+                    <Link
+                      to={`/follow-ups/${followUp.id}/edit`}
+                      className="secondary-button"
+                    >
+                      Edit
+                    </Link>
+                  </div>
+                </div>
+              ))}
+
+              {filteredFollowUps.length === 0 && (
+                <div className="customer-empty">
+                  <strong>No follow-ups found</strong>
+                  <p>
+                    {search
+                      ? "Try a different customer name."
+                      : "Record your first customer follow-up to see it here."}
+                  </p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
-      {selectedFollowUp && !confirmingDelete && (
+      {selectedFollowUp && (
         <EntityModal
           title="Follow-up details"
           description={`${selectedFollowUp.customer} · ${displayDate(selectedFollowUp.date)}`}
           onClose={() => setSelectedFollowUp(null)}
         >
           <div className="entity-modal-details">
-            <div><span>Customer</span><strong>{selectedFollowUp.customer}</strong></div>
-            <div><span>Receivable</span><strong>{selectedFollowUp.receivable}</strong></div>
-            <div><span>Due date</span><strong>{displayDate(selectedFollowUp.date)}</strong></div>
-            <div><span>Contact method</span><strong>{selectedFollowUp.method}</strong></div>
-            <div><span>Status</span><strong>{selectedFollowUp.status}</strong></div>
-            <div><span>Notes</span><strong>{selectedFollowUp.notes || "No notes"}</strong></div>
-          </div>
-          <div className="entity-modal-actions">
-            <button type="button" className="secondary-button" onClick={() => setSelectedFollowUp(null)}>
-              Close
-            </button>
-          </div>
-        </EntityModal>
-      )}
+            <div>
+              <span>Customer</span>
+              <strong>{selectedFollowUp.customer}</strong>
+            </div>
 
-      {selectedFollowUp && confirmingDelete && (
-        <EntityModal
-          title="Delete follow-up?"
-          description={`Delete the follow-up for ${selectedFollowUp.customer}? This action cannot be undone.`}
-          onClose={() => setConfirmingDelete(false)}
-        >
+            <div>
+              <span>Receivable</span>
+              <strong>{selectedFollowUp.receivable}</strong>
+            </div>
+
+            <div>
+              <span>Contact date</span>
+              <strong>{displayDate(selectedFollowUp.date)}</strong>
+            </div>
+
+            <div>
+              <span>Recorded by</span>
+              <strong>{selectedFollowUp.createdBy || "Unknown"}</strong>
+            </div>
+
+            <div>
+              <span>Notes</span>
+              <strong>{selectedFollowUp.notes || "No notes"}</strong>
+            </div>
+          </div>
+
           <div className="entity-modal-actions">
-            <button type="button" className="secondary-button" onClick={() => setConfirmingDelete(false)}>
-              Cancel
-            </button>
             <button
               type="button"
-              className="danger-button"
-              onClick={() => {
-                deleteFollowUp(selectedFollowUp.id);
-                refreshFollowUps();
-                setConfirmingDelete(false);
-                setSelectedFollowUp(null);
-              }}
+              className="secondary-button"
+              onClick={() => setSelectedFollowUp(null)}
             >
-              Delete follow-up
+              Close
             </button>
+
+            <Link
+              to={`/follow-ups/${selectedFollowUp.id}/edit`}
+              className="primary-button"
+            >
+              Edit
+            </Link>
           </div>
         </EntityModal>
       )}

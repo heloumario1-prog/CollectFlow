@@ -1,75 +1,108 @@
-export type FollowUpStatus = "Upcoming" | "Due Today" | "Overdue" | "Completed";
-export type ContactMethod = "WhatsApp" | "Phone Call" | "SMS" | "Other";
+
+import { apiRequest } from "../api/client";
+
+type ApiFollowUp = {
+  id: number;
+  customer: number;
+  customer_name: string;
+  receivable: number | null;
+  payment_promise: number | null;
+  occurred_at: string;
+  note: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type ApiPage<T> = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+};
 
 export type FollowUp = {
   id: number;
-  customerId: string;
+  customerId: number;
   customer: string;
+  receivableId: number | null;
   receivable: string;
   date: string;
-  method: ContactMethod;
-  status: FollowUpStatus;
+  notes: string;
+  createdBy: string;
+};
+
+export type FollowUpInput = {
+  customerId: number;
+  receivableId: number | null;
+  date: string;
   notes: string;
 };
 
-let followUps: FollowUp[] = [
-  {
-    id: 1,
-    customerId: "hassan-al-khalil",
-    customer: "Hassan Al-Khalil",
-    receivable: "Cleaning supplies",
-    date: "2026-10-01",
-    method: "WhatsApp",
-    status: "Due Today",
-    notes: "Confirm expected transfer date.",
-  },
-  {
-    id: 2,
-    customerId: "samir-youssef",
-    customer: "Samir Youssef",
-    receivable: "Wholesale products",
-    date: "2026-10-05",
-    method: "Phone Call",
-    status: "Upcoming",
-    notes: "Check in about the remaining balance.",
-  },
-  {
-    id: 3,
-    customerId: "maria-hani",
-    customer: "Maria Hani",
-    receivable: "Office supplies",
-    date: "2026-09-28",
-    method: "SMS",
-    status: "Overdue",
-    notes: "Reschedule after missed call.",
-  },
-  {
-    id: 4,
-    customerId: "hassan-al-khalil",
-    customer: "Hassan Al-Khalil",
-    receivable: "Delivery equipment",
-    date: "2026-09-25",
-    method: "Other",
-    status: "Completed",
-    notes: "Customer confirmed payment plan.",
-  },
-];
-
-export function getFollowUps() {
-  return [...followUps];
+function fromApi(item: ApiFollowUp): FollowUp {
+  return {
+    id: item.id,
+    customerId: item.customer,
+    customer: item.customer_name,
+    receivableId: item.receivable,
+    receivable: item.receivable
+      ? `Receivable #${item.receivable}`
+      : "No related receivable",
+    date: item.occurred_at,
+    notes: item.note,
+    createdBy: item.created_by_name,
+  };
 }
 
-export function addFollowUp(followUp: Omit<FollowUp, "id">) {
-  const id = Math.max(0, ...followUps.map((item) => item.id)) + 1;
-  followUps = [...followUps, { ...followUp, id }];
+export async function getFollowUps(): Promise<FollowUp[]> {
+  const items: ApiFollowUp[] = [];
+  let page = 1;
+
+  while (true) {
+    const response = await apiRequest<
+      ApiPage<ApiFollowUp> | ApiFollowUp[]
+    >(`followups/?page=${page}`);
+
+    if (Array.isArray(response)) {
+      items.push(...response);
+      break;
+    }
+
+    items.push(...response.results);
+
+    if (!response.next) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return items.map(fromApi);
 }
 
-export function updateFollowUp(id: number, changes: Omit<FollowUp, "id">) {
-  followUps = followUps.map((item) =>
-    item.id === id ? { ...changes, id } : item,
-  );
+export async function addFollowUp(input: FollowUpInput): Promise<void> {
+  await apiRequest<ApiFollowUp>("followups/", {
+    method: "POST",
+    body: {
+      customer: input.customerId,
+      receivable: input.receivableId,
+      occurred_at: input.date,
+      note: input.notes.trim(),
+    },
+  });
 }
 
-export function deleteFollowUp(id: number) {
-  followUps = followUps.filter((item) => item.id !== id);
+export async function updateFollowUp(
+  id: number,
+  input: FollowUpInput,
+): Promise<void> {
+  await apiRequest<ApiFollowUp>(`followups/${id}/`, {
+    method: "PATCH",
+    body: {
+      customer: input.customerId,
+      receivable: input.receivableId,
+      occurred_at: input.date,
+      note: input.notes.trim(),
+    },
+  });
 }

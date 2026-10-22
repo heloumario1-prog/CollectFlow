@@ -1,46 +1,90 @@
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { useState } from "react";
+import {
+  archiveCustomerById,
+  getCustomerById,
+  type ApiCustomer,
+} from "../data/customers";
 import { EntityModal } from "../components/EntityModal";
-import { deleteCustomer, getCustomer } from "../data/customers";
-import { deleteReceivablesForCustomer, getReceivables } from "../data/receivables";
-import { deletePaymentsForCustomer } from "../data/payments";
-import { SaveFeedback } from "../components/SaveFeedback";
+
+const money = (value: string) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(Number(value));
 
 export function CustomerDetailsPage() {
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
-  const { customerId } = useParams();
+  const { id } = useParams();
   const navigate = useNavigate();
-  const customer = customerId ? getCustomer(customerId) : undefined;
+  const [customer, setCustomer] = useState<ApiCustomer | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
+  const [archiving, setArchiving] = useState(false);
 
-  if (!customer || !customerId) {
+  useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setError("");
+    getCustomerById(id)
+      .then((data) => {
+        if (active) setCustomer(data);
+      })
+      .catch((e) => {
+        if (active)
+          setError(e instanceof Error ? e.message : "Could not load customer.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  async function handleArchive() {
+    if (!id) return;
+    setArchiving(true);
+    setArchiveError("");
+    try {
+      await archiveCustomerById(id);
+      navigate("/customers");
+    } catch (e) {
+      setArchiveError(
+        e instanceof Error ? e.message : "Could not archive the customer.",
+      );
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  if (loading) {
     return (
       <section className="content-page">
-        <div className="customer-empty">
-          <strong>Customer not found</strong>
-          <p>This customer may have been removed.</p>
-          <Link to="/customers" className="secondary-button">Back to customers</Link>
-        </div>
+        <div className="content-panel">Loading...</div>
       </section>
     );
   }
 
-  const customerReceivables = getReceivables().filter(
-    (receivable) => receivable.customerId === customerId,
-  );
-  const totalReceivables = customerReceivables.reduce(
-    (total, receivable) => total + receivable.originalAmount,
-    0,
-  );
-  const outstanding = customerReceivables.reduce(
-    (total, receivable) => total + receivable.outstanding,
-    0,
-  );
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
-    }).format(amount);
+  if (!customer) {
+    return (
+      <section className="content-page">
+        <Link to="/customers" className="back-link">
+          ← Back to customers
+        </Link>
+        <div className="content-panel">
+          <strong>Customer not found</strong>
+          <p>{error || "This customer does not exist."}</p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="content-page">
@@ -49,163 +93,106 @@ export function CustomerDetailsPage() {
           <Link to="/customers" className="back-link">
             ← Back to customers
           </Link>
-
           <div className="customer-title">
             <div className="large-customer-avatar">
-              {customer.name.charAt(0)}
+              {customer.name.charAt(0).toUpperCase()}
             </div>
-
             <div>
-              <p className="eyebrow">CUSTOMER</p>
               <h1>{customer.name}</h1>
-              <p className="page-description">
-                {customer.country} • {customer.phone}
-              </p>
+              <p className="page-description">{customer.phone_e164}</p>
             </div>
           </div>
         </div>
 
         <div className="customer-actions">
-          <Link to={`/customers/${customerId}/edit`} className="secondary-button">
-            Edit
+          <Link
+            to={`/customers/${customer.id}/edit`}
+            className="secondary-button"
+          >
+            Edit customer
           </Link>
-
           <button
             type="button"
             className="danger-button"
-            onClick={() => setShowDeleteConfirmation(true)}
+            onClick={() => setConfirming(true)}
           >
-            Delete customer
+            Archive customer
           </button>
-
-          <Link
-            to={`/customers/${customerId}/receivables/new`}
-            className="primary-button"
-          >
-            + Add receivable
-          </Link>
         </div>
       </div>
 
-      <SaveFeedback />
+      <div className="customer-stats-grid">
+        <article className="stat-card">
+          <span>Receivables</span>
+          <strong>{customer.total_receivables}</strong>
+          <small>Active receivables</small>
+        </article>
+        <article className="stat-card">
+          <span>Paid</span>
+          <strong>{money(customer.total_paid)}</strong>
+          <small>Total payments received</small>
+        </article>
+        <article className="stat-card">
+          <span>Outstanding</span>
+          <strong>{money(customer.total_remaining)}</strong>
+          <small>Remaining balance</small>
+        </article>
+      </div>
 
-      {showDeleteConfirmation && (
+      <div className="content-panel">
+        <h2>Customer details</h2>
+        <div className="details-list">
+          <div className="details-item">
+            <span>Phone</span>
+            <strong>{customer.phone_e164}</strong>
+          </div>
+          <div className="details-item">
+            <span>Email</span>
+            <strong>{customer.email || "—"}</strong>
+          </div>
+          <div className="details-item">
+            <span>Notes</span>
+            <strong>{customer.notes || "—"}</strong>
+          </div>
+          <div className="details-item">
+            <span>Next follow-up</span>
+            <strong>{customer.next_follow_up_on || "—"}</strong>
+          </div>
+          <div className="details-item">
+            <span>Added on</span>
+            <strong>{new Date(customer.created_at).toLocaleDateString()}</strong>
+          </div>
+        </div>
+      </div>
+
+      {confirming && (
         <EntityModal
-          title="Delete customer?"
-          description={`Are you sure you want to delete ${customer.name}? This action cannot be undone.`}
-          onClose={() => setShowDeleteConfirmation(false)}
+          title="Archive customer?"
+          description={`Archive ${customer.name}? They will be hidden from the customer list. A customer with an unpaid balance cannot be archived.`}
+          onClose={() => setConfirming(false)}
         >
+          {archiveError && (
+            <p style={{ color: "#b42318", fontSize: 12 }}>{archiveError}</p>
+          )}
           <div className="entity-modal-actions">
             <button
               type="button"
               className="secondary-button"
-              onClick={() => setShowDeleteConfirmation(false)}
+              onClick={() => setConfirming(false)}
             >
               Cancel
             </button>
             <button
               type="button"
               className="danger-button"
-              onClick={() => {
-                deleteReceivablesForCustomer(customerId);
-                deletePaymentsForCustomer(customerId);
-                deleteCustomer(customerId);
-                navigate("/customers");
-              }}
+              onClick={handleArchive}
+              disabled={archiving}
             >
-              Delete customer
+              {archiving ? "Archiving..." : "Archive customer"}
             </button>
           </div>
         </EntityModal>
       )}
-
-      <div className="customer-stats-grid">
-        <article className="stat-card">
-          <span>Outstanding balance</span>
-          <strong>{formatCurrency(outstanding)}</strong>
-          <small>Current amount due</small>
-        </article>
-
-        <article className="stat-card">
-          <span>Total receivables</span>
-          <strong>{formatCurrency(totalReceivables)}</strong>
-          <small>Total credit provided</small>
-        </article>
-
-        <article className="stat-card">
-          <span>Total paid</span>
-          <strong>{formatCurrency(totalReceivables - outstanding)}</strong>
-          <small>Payments received</small>
-        </article>
-      </div>
-
-      <div className="customer-details-grid">
-        <section className="dashboard-card">
-          <div className="card-header">
-            <div>
-              <p className="eyebrow">INFORMATION</p>
-              <h2>Customer information</h2>
-            </div>
-          </div>
-
-          <div className="details-list">
-            <div className="details-item">
-              <span>Full name</span>
-              <strong>{customer.name}</strong>
-            </div>
-
-            <div className="details-item">
-              <span>Phone number</span>
-              <strong>{customer.phone}</strong>
-            </div>
-
-            <div className="details-item">
-              <span>Email</span>
-              <strong>{customer.email}</strong>
-            </div>
-
-            <div className="details-item">
-              <span>Address</span>
-              <strong>{customer.address}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="dashboard-card">
-          <div className="card-header">
-            <div>
-              <p className="eyebrow">ACTIVITY</p>
-              <h2>Recent activity</h2>
-            </div>
-          </div>
-
-          <div className="activity-list">
-            <div className="activity-item">
-              <div className="activity-icon">P</div>
-              <div>
-                <strong>Payment received</strong>
-                <span>Payment activity will appear here.</span>
-              </div>
-            </div>
-
-            <div className="activity-item">
-              <div className="activity-icon">R</div>
-              <div>
-                <strong>Receivable created</strong>
-                <span>Receivable activity will appear here.</span>
-              </div>
-            </div>
-
-            <div className="activity-item">
-              <div className="activity-icon">F</div>
-              <div>
-                <strong>Follow-up scheduled</strong>
-                <span>Follow-up activity will appear here.</span>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
     </section>
   );
 }

@@ -1,43 +1,160 @@
+
+import { apiRequest } from "../api/client";
+
+export type PaymentMethod = "CASH" | "WHISH";
+
+export const methodLabels: Record<PaymentMethod, string> = {
+  CASH: "Cash",
+  WHISH: "Whish",
+};
+
 export type Payment = {
   id: number;
-  customerId: string;
+  paymentPromiseId: number;
+  customerId: number;
   customer: string;
   amount: number;
   date: string;
-  method: string;
-  status: "Completed";
+  method: PaymentMethod;
+  note: string | null;
+  status: "Completed" | "Voided";
+  voidReason: string | null;
 };
 
-let payments: Payment[] = [
-  { id: 1, customerId: "hassan-al-khalil", customer: "Hassan Al-Khalil", amount: 650, date: "2026-09-26", method: "Cash", status: "Completed" },
-  { id: 2, customerId: "samir-youssef", customer: "Samir Youssef", amount: 820, date: "2026-09-22", method: "Bank transfer", status: "Completed" },
-  { id: 3, customerId: "maria-hani", customer: "Maria Hani", amount: 580, date: "2026-09-18", method: "Whish", status: "Completed" },
-];
+type ApiPayment = {
+  id: number;
+  payment_promise: number;
+  receivable_id: number;
+  customer_id: number;
+  customer_name: string;
+  amount: string | number;
+  paid_on: string;
+  method: PaymentMethod;
+  note: string | null;
+  is_voided: boolean;
+  void_reason: string | null;
+};
 
-export function getPayments() {
-  return payments.map((payment) => ({ ...payment }));
+type Page<T> = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+};
+
+function fromApi(payment: ApiPayment): Payment {
+  return {
+    id: payment.id,
+    paymentPromiseId: payment.payment_promise,
+    customerId: payment.customer_id,
+    customer: payment.customer_name,
+    amount: Number(payment.amount),
+    date: payment.paid_on,
+    method: payment.method,
+    note: payment.note,
+    status: payment.is_voided ? "Voided" : "Completed",
+    voidReason: payment.void_reason,
+  };
 }
 
-export function getPayment(id: number) {
-  const payment = payments.find((item) => item.id === id);
-  return payment ? { ...payment } : undefined;
+/**
+ * Get all payments from Django, including subsequent pages.
+ */
+export async function getPayments(): Promise<Payment[]> {
+  const payments: Payment[] = [];
+  let page = 1;
+
+  while (true) {
+    const response = await apiRequest<Page<ApiPayment> | ApiPayment[]>(
+      `payments/?page=${page}`,
+    );
+
+    // Support APIs that return a plain array.
+    if (Array.isArray(response)) {
+      payments.push(...response.map(fromApi));
+      break;
+    }
+
+    payments.push(...response.results.map(fromApi));
+
+    if (!response.next) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return payments;
 }
 
-export function addPayment(payment: Omit<Payment, "id">) {
-  const id = Math.max(0, ...payments.map((item) => item.id)) + 1;
-  payments = [...payments, { ...payment, id }];
+/**
+ * Get one payment by ID.
+ */
+export async function getPayment(
+  id: number,
+): Promise<Payment | undefined> {
+  try {
+    const payment = await apiRequest<ApiPayment>(`payments/${id}/`);
+    return fromApi(payment);
+  } catch {
+    return undefined;
+  }
 }
 
-export function updatePayment(id: number, changes: Omit<Payment, "id">) {
-  payments = payments.map((item) =>
-    item.id === id ? { ...changes, id } : item,
-  );
+export type PaymentInput = {
+  amount: number;
+  date: string;
+  method: PaymentMethod;
+  note: string;
+};
+
+/**
+ * Record a new payment against a payment promise.
+ */
+export async function addPayment(
+  input: PaymentInput & { paymentPromiseId: number },
+): Promise<void> {
+  await apiRequest<ApiPayment>("payments/", {
+    method: "POST",
+    body: {
+      payment_promise: input.paymentPromiseId,
+      amount: input.amount.toFixed(2),
+      paid_on: input.date,
+      method: input.method,
+      note: input.note.trim() || null,
+    },
+  });
 }
 
-export function deletePayment(id: number) {
-  payments = payments.filter((item) => item.id !== id);
+/**
+ * Edit an existing payment.
+ */
+export async function updatePayment(
+  id: number,
+  input: PaymentInput,
+): Promise<void> {
+  await apiRequest<ApiPayment>(`payments/${id}/`, {
+    method: "PATCH",
+    body: {
+      amount: input.amount.toFixed(2),
+      paid_on: input.date,
+      method: input.method,
+      note: input.note.trim() || null,
+    },
+  });
 }
 
-export function deletePaymentsForCustomer(customerId: string) {
-  payments = payments.filter((item) => item.customerId !== customerId);
+/**
+ * Void a payment instead of permanently deleting its financial record.
+ */
+export async function voidPayment(
+  id: number,
+  reason: string,
+): Promise<void> {
+  await apiRequest<ApiPayment>(`payments/${id}/void/`, {
+    method: "POST",
+    body: {
+      void_reason: reason.trim(),
+    },
+  });
 }
