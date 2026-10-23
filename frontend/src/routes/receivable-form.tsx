@@ -9,9 +9,9 @@ import {
 } from "../data/receivables";
 import { setSaveFeedback } from "../data/save-feedback";
 
-const errorStyle = { color: "#b42318", fontSize: "11px", margin: 0 };
+const errorStyle = { color: "var(--cf-danger)", fontSize: "13px", margin: 0 };
 
-const today = () => new Date().toLocaleDateString("en-CA");
+const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Beirut" });
 
 export function AddReceivablePage() {
   return <ReceivableFormScreen isEdit={false} />;
@@ -49,7 +49,7 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
         if (!active) return;
         setCustomerId(String(receivable.customer_detail.id));
         setAmount(receivable.original_amount);
-        setIssueDate(receivable.issue_date);
+        setIssueDate(receivable.issue_date ?? "");
         setDueDate(receivable.due_date);
         setReference(receivable.reference ?? "");
         setDescription(receivable.description ?? "");
@@ -75,6 +75,7 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     const numericAmount = Number(amount);
     if (!customerId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
       setError("Choose a customer and enter an amount greater than zero.");
@@ -158,7 +159,7 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
           <p>Capture the customer, amount, and due date for this receivable.</p>
         </div>
 
-        {error && <p style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
+        {error && <p role="alert" style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
 
         <div className="form-grid">
           <div className="form-group">
@@ -197,12 +198,11 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
           </div>
 
           <div className="form-group">
-            <label htmlFor="receivable-issue-date">Issue date</label>
+            <label htmlFor="receivable-issue-date">Issue date (optional)</label>
             <input
               id="receivable-issue-date"
               type="date"
               value={issueDate}
-              required
               onChange={(event) => setIssueDate(event.target.value)}
             />
             {fieldErrors.issue_date && <p style={errorStyle}>{fieldErrors.issue_date}</p>}
@@ -232,13 +232,12 @@ function ReceivableFormScreen({ isEdit }: { isEdit: boolean }) {
           </div>
 
           <div className="form-group full-width">
-            <label htmlFor="receivable-description">Description</label>
+            <label htmlFor="receivable-description">Description (optional)</label>
             <textarea
               id="receivable-description"
               rows={4}
               placeholder="Describe this receivable..."
               value={description}
-              required
               onChange={(event) => setDescription(event.target.value)}
             />
             {fieldErrors.description && (

@@ -1,23 +1,61 @@
+import hashlib
+import json
+
+from audit.services import log_audit_event
+from common.permissions import IsBusinessMember
+from common.writes import BusinessWriteLockMixin
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import viewsets, permissions, status
+from payments.models import Payment, PaymentRequest
+from payments.serializers import PaymentSerializer, VoidPaymentSerializer
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from payments.models import Payment
-from payments.serializers import PaymentSerializer, VoidPaymentSerializer
-from common.permissions import IsBusinessMember
-from audit.services import log_audit_event
 
-
-class PaymentViewSet(viewsets.ModelViewSet):
+class PaymentViewSet(BusinessWriteLockMixin, viewsets.ModelViewSet):
     """
     List, Record, and Void Payments. Strictly tenant-scoped.
     DELETE returns 405 Method Not Allowed.
     """
+
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated, IsBusinessMember]
     http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        # Optional for existing API consumers; the connected payment form supplies it.
+        key = request.headers.get("Idempotency-Key")
+        if key is None:
+            return super().create(request, *args, **kwargs)
+        if not key.strip() or len(key) > 100:
+            return Response(
+                {"detail": "Use an idempotency key of 1 to 100 characters."}, status=400
+            )
+        fingerprint = hashlib.sha256(
+            json.dumps(request.data, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        previous = PaymentRequest.objects.filter(
+            business=request.user.business, key=key
+        ).first()
+        if previous:
+            if previous.fingerprint != fingerprint:
+                return Response(
+                    {
+                        "detail": "This payment request key was already used with different details."
+                    },
+                    status=409,
+                )
+            return Response(previous.response_data, status=201)
+        response = super().create(request, *args, **kwargs)
+        PaymentRequest.objects.create(
+            business=request.user.business,
+            key=key,
+            fingerprint=fingerprint,
+            response_data=response.data,
+        )
+        return response
 
     def get_queryset(self):
         qs = Payment.objects.filter(
@@ -83,7 +121,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def void(self, request, pk=None):
         with transaction.atomic():
-            payment = Payment.objects.select_for_update().get(
+            payment = get_object_or_404(
+                Payment.objects.select_for_update(),
                 pk=pk,
                 payment_promise__receivable__business=request.user.business,
             )
@@ -91,6 +130,17 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 return Response(
                     {"detail": "This payment has already been voided."},
                     status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if (
+                payment.payment_promise.receivable.archived_at is not None
+                or payment.payment_promise.receivable.customer.archived_at is not None
+            ):
+                return Response(
+                    {
+                        "detail": "Restore the customer and receivable before voiding this payment."
+                    },
+                    status=400,
                 )
 
             serializer = VoidPaymentSerializer(data=request.data)
@@ -128,6 +178,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         return Response(
-            {"detail": "Permanent deletion of payments is not permitted. Use void instead."},
+            {
+                "detail": "Permanent deletion of payments is not permitted. Use void instead."
+            },
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )

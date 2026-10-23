@@ -43,12 +43,16 @@ function baseBody(input: CustomerInput) {
   };
 }
 
-export async function listCustomers(): Promise<ApiCustomer[]> {
+export async function listCustomers(
+  status: "active" | "archived" | "all" = "active",
+  signal?: AbortSignal,
+): Promise<ApiCustomer[]> {
   const all: ApiCustomer[] = [];
   let page = 1;
   while (true) {
     const data = await apiRequest<Page<ApiCustomer> | ApiCustomer[]>(
-      `customers/?page=${page}`,
+      `customers/?page=${page}&is_archived=${status === "archived" ? "true" : status === "all" ? "all" : "false"}`,
+      { signal },
     );
 
     if (Array.isArray(data)) return data;
@@ -61,7 +65,7 @@ export async function listCustomers(): Promise<ApiCustomer[]> {
 }
 
 export function getCustomerById(id: string) {
-  return apiRequest<ApiCustomer>(`customers/${id}/`);
+  return apiRequest<ApiCustomer>(`customers/${id}/?is_archived=all`);
 }
 
 export function createCustomer(input: CustomerInput) {

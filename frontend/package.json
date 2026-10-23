@@ -6,7 +6,9 @@
     "build": "tsc && vite build",
     "dev": "vite",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test scripts/api.test.mjs",
+    "test:browser": "node scripts/review-browser.mjs"
   },
   "dependencies": {
     "isbot": "^5",

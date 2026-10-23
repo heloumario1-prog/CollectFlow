@@ -3,6 +3,7 @@ import { ApiError } from "../../api/client";
 import type { LoginWrite, RegisterWrite } from "../../type/auth";
 import { loginSchema, registerSchema } from "./schema";
 import { authService } from "./service";
+import { registrationNotice } from "./registrationNotice";
 // specifies the structure of the result returned by the authentication actions
 export type AuthActionResult = {
   fieldErrors: Record<string, string>;
@@ -127,6 +128,7 @@ export async function registerAction({ request }: ActionFunctionArgs) {
 
   try {
     await authService.register(payload, request.signal);
+    registrationNotice.setEmail(payload.owner.email);
     return redirect("/login?registered=1");
   } catch (error) {
     return failed(error);

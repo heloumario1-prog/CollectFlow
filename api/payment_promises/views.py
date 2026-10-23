@@ -1,20 +1,29 @@
+from audit.services import log_audit_event
+from common.financials import promise_balances
+from common.permissions import IsBusinessMember
+from common.timezone_utils import get_beirut_today
+from common.writes import BusinessWriteLockMixin
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
-from rest_framework import viewsets, permissions, status
+from payment_promises.models import PaymentPromise
+from payment_promises.serializers import (
+    CancelPromiseSerializer,
+    PaymentPromiseSerializer,
+)
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from payment_promises.models import PaymentPromise
-from payment_promises.serializers import PaymentPromiseSerializer, CancelPromiseSerializer
-from common.permissions import IsBusinessMember
-from audit.services import log_audit_event
 
-
-class PaymentPromiseViewSet(viewsets.ModelViewSet):
+class PaymentPromiseViewSet(BusinessWriteLockMixin, viewsets.ModelViewSet):
     """
     CRUD + Cancel for Payment Promises. Strictly tenant-scoped.
     DELETE returns 405 Method Not Allowed.
     """
+
     serializer_class = PaymentPromiseSerializer
     permission_classes = [permissions.IsAuthenticated, IsBusinessMember]
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -40,11 +49,26 @@ class PaymentPromiseViewSet(viewsets.ModelViewSet):
         if promised_on_to:
             qs = qs.filter(promised_on__lte=promised_on_to)
 
-        status_param = self.request.query_params.get("status")
+        qs = promise_balances(qs)
+        status_param = self.request.query_params.get("status", "ALL").upper()
         if status_param == "CANCELLED":
             qs = qs.filter(cancelled_at__isnull=False)
-        elif status_param and status_param != "ALL":
+        elif status_param != "ALL":
             qs = qs.filter(cancelled_at__isnull=True)
+            if status_param == "KEPT":
+                qs = qs.filter(_paid_total__gte=F("amount"))
+            elif status_param == "BROKEN":
+                qs = qs.filter(
+                    _paid_total__lt=F("amount"), promised_on__lt=get_beirut_today()
+                )
+            elif status_param == "PENDING":
+                qs = qs.filter(
+                    _paid_total__lt=F("amount"), promised_on__gte=get_beirut_today()
+                )
+            else:
+                raise ValidationError(
+                    {"status": "Choose PENDING, BROKEN, KEPT, CANCELLED, or ALL."}
+                )
 
         return qs.order_by("promised_on", "-created_at")
 
@@ -66,7 +90,11 @@ class PaymentPromiseViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         prom = self.get_object()
-        before_data = {"amount": str(prom.amount), "promised_on": prom.promised_on.isoformat(), "note": prom.note}
+        before_data = {
+            "amount": str(prom.amount),
+            "promised_on": prom.promised_on.isoformat(),
+            "note": prom.note,
+        }
         updated = serializer.save()
         log_audit_event(
             business=self.request.user.business,
@@ -75,19 +103,27 @@ class PaymentPromiseViewSet(viewsets.ModelViewSet):
             entity_type="PaymentPromise",
             entity_id=updated.id,
             before_data=before_data,
-            after_data={"amount": str(updated.amount), "promised_on": updated.promised_on.isoformat(), "note": updated.note},
+            after_data={
+                "amount": str(updated.amount),
+                "promised_on": updated.promised_on.isoformat(),
+                "note": updated.note,
+            },
             request=self.request,
         )
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         with transaction.atomic():
-            promise = PaymentPromise.objects.select_for_update().get(
+            promise = get_object_or_404(
+                PaymentPromise.objects.select_for_update(),
                 pk=pk,
                 receivable__business=request.user.business,
             )
             if promise.cancelled_at is not None:
-                return Response({"detail": "This promise is already cancelled."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"detail": "This promise is already cancelled."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             serializer = CancelPromiseSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
@@ -96,7 +132,14 @@ class PaymentPromiseViewSet(viewsets.ModelViewSet):
             promise.cancelled_at = timezone.now()
             promise.cancelled_by = request.user
             promise.cancel_reason = reason
-            promise.save(update_fields=["cancelled_at", "cancelled_by", "cancel_reason", "updated_at"])
+            promise.save(
+                update_fields=[
+                    "cancelled_at",
+                    "cancelled_by",
+                    "cancel_reason",
+                    "updated_at",
+                ]
+            )
 
             log_audit_event(
                 business=request.user.business,
@@ -104,7 +147,10 @@ class PaymentPromiseViewSet(viewsets.ModelViewSet):
                 action="CANCEL",
                 entity_type="PaymentPromise",
                 entity_id=promise.id,
-                after_data={"cancelled_at": promise.cancelled_at.isoformat(), "cancel_reason": reason},
+                after_data={
+                    "cancelled_at": promise.cancelled_at.isoformat(),
+                    "cancel_reason": reason,
+                },
                 request=request,
             )
 
@@ -112,6 +158,8 @@ class PaymentPromiseViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         return Response(
-            {"detail": "Permanent deletion of payment promises is not permitted. Use cancel instead."},
+            {
+                "detail": "Permanent deletion of payment promises is not permitted. Use cancel instead."
+            },
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )

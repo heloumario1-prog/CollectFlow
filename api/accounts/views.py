@@ -1,15 +1,23 @@
+from common.permissions import IsBusinessMember
+from common.throttles import (
+    LoginAccountThrottle,
+    LoginAddressThrottle,
+    PasswordThrottle,
+    RegistrationThrottle,
+)
 from django.contrib.auth import login, logout, update_session_auth_hash
+from django.db import IntegrityError, transaction
+from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.shortcuts import get_object_or_404
 
 from .models import User
 from .permissions import IsOwner
-
 from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
@@ -33,6 +41,7 @@ class CsrfView(APIView):
 
 @method_decorator(csrf_protect, name="dispatch")
 class RegisterView(generics.CreateAPIView):
+    throttle_classes = [RegistrationThrottle]
     authentication_classes = []
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
@@ -53,6 +62,7 @@ class RegisterView(generics.CreateAPIView):
 
 @method_decorator(csrf_protect, name="dispatch")
 class LoginView(APIView):
+    throttle_classes = [LoginAddressThrottle, LoginAccountThrottle]
     authentication_classes = []
     permission_classes = [AllowAny]
 
@@ -67,8 +77,10 @@ class LoginView(APIView):
         login(request, user)
 
         return Response(UserSerializer(user).data)
+
+
 class MeView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsBusinessMember]
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
@@ -80,8 +92,11 @@ class LogoutView(APIView):
     def post(self, request):
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ChangePasswordView(APIView):
-    permission_classes = [IsAuthenticated]
+    throttle_classes = [PasswordThrottle]
+    permission_classes = [IsAuthenticated, IsBusinessMember]
 
     def post(self, request):
         serializer = ChangePasswordSerializer(
@@ -97,6 +112,8 @@ class ChangePasswordView(APIView):
         update_session_auth_hash(request, user)
 
         return Response({"message": "Password changed successfully."})
+
+
 def get_staff_or_404(request, pk):
     # Only STAFF users of the owner's own business can ever be found.
     return get_object_or_404(
@@ -108,6 +125,7 @@ def get_staff_or_404(request, pk):
 
 
 class StaffListCreateView(APIView):
+    throttle_classes = [PasswordThrottle]
     permission_classes = [IsOwner]
 
     def get(self, request):
@@ -123,13 +141,21 @@ class StaffListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        staff = User.objects.create_user(
-            business=request.user.business,
-            email=data["email"],
-            password=data["password"],
-            full_name=data["full_name"],
-            role=User.Role.STAFF,
-        )
+        try:
+            with transaction.atomic():
+                staff = User.objects.create_user(
+                    business=request.user.business,
+                    email=data["email"],
+                    password=data["password"],
+                    full_name=data["full_name"],
+                    role=User.Role.STAFF,
+                )
+        except IntegrityError:
+            if User.objects.filter(email__iexact=data["email"]).exists():
+                raise ValidationError(
+                    {"email": "A user with this email already exists."}
+                )
+            raise
 
         return Response(
             StaffSerializer(staff).data,
@@ -157,7 +183,19 @@ class StaffDetailView(APIView):
         for field, value in serializer.validated_data.items():
             setattr(staff, field, value)
 
-        staff.save()
+        try:
+            with transaction.atomic():
+                staff.save()
+        except IntegrityError:
+            if (
+                User.objects.filter(email__iexact=staff.email)
+                .exclude(pk=staff.pk)
+                .exists()
+            ):
+                raise ValidationError(
+                    {"email": "A user with this email already exists."}
+                )
+            raise
 
         return Response(StaffSerializer(staff).data)
 
@@ -185,6 +223,7 @@ class StaffReactivateView(APIView):
 
 
 class StaffResetPasswordView(APIView):
+    throttle_classes = [PasswordThrottle]
     permission_classes = [IsOwner]
 
     def post(self, request, pk):

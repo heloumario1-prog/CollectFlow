@@ -7,9 +7,9 @@ import {
   updateCustomerById,
 } from "../data/customers";
 
-const countries = [{ code: "LB", name: "Lebanon" }];
+const countries = [{ code: "LB", name: "Lebanon" }, { code: "ZZ", name: "International (+country code)" }];
 
-const errorStyle = { color: "#b42318", fontSize: "11px", margin: 0 };
+const errorStyle = { color: "var(--cf-danger)", fontSize: "13px", margin: 0 };
 
 function CustomerForm({ customerId }: { customerId?: string }) {
   const navigate = useNavigate();
@@ -32,8 +32,10 @@ function CustomerForm({ customerId }: { customerId?: string }) {
     getCustomerById(customerId)
       .then((customer) => {
         if (!active) return;
+        if (customer.archived_at) { setLoadFailed(true); setError("Restore the customer before editing it."); return; }
         setName(customer.name);
         setPhone(customer.phone_e164);
+        setCountry(customer.phone_e164.startsWith("+961") ? "LB" : "ZZ");
         setOriginalPhone(customer.phone_e164);
         setEmail(customer.email ?? "");
         setNotes(customer.notes ?? "");
@@ -54,6 +56,7 @@ function CustomerForm({ customerId }: { customerId?: string }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     setSaving(true);
     setError("");
     setFieldErrors({});
@@ -112,7 +115,7 @@ function CustomerForm({ customerId }: { customerId?: string }) {
         </div>
       ) : (
         <form className="form-card" onSubmit={handleSubmit}>
-          {error && <p style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
+          {error && <p role="alert" style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
 
           <div className="form-grid">
             <div className="form-group">
@@ -147,7 +150,8 @@ function CustomerForm({ customerId }: { customerId?: string }) {
                 id="customer-phone"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                placeholder="70 123 456 or +96170123456"
+                type="tel"
+                placeholder={country === "LB" ? "70 123 456 or +96170123456" : "+country code and number"}
                 required
               />
               {phoneError && <p style={errorStyle}>{phoneError}</p>}

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const full_name = z.string().trim().min(1, "Enter a full name.").max(150, "Use 150 characters or fewer.");
-const email = z.email("Enter a valid email address.").transform((value) => value.trim().toLowerCase());
+const email = z.string().trim().pipe(z.email("Enter a valid email address.")).transform((value) => value.trim().toLowerCase());
 const password = z.string().min(8, "Use at least 8 characters.");
 
 export const staffCreateSchema = z.object({ full_name, email, password });

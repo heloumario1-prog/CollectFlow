@@ -1,9 +1,9 @@
 from decimal import Decimal
-from django.db.models import Sum, Q
-from rest_framework import serializers
 
+from common.phone_utils import get_whatsapp_url, normalize_phone_number
 from customers.models import Customer
-from common.phone_utils import normalize_phone_number, get_whatsapp_url
+from django.db.models import Q, Sum
+from rest_framework import serializers
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -12,8 +12,12 @@ class CustomerSerializer(serializers.ModelSerializer):
     total_receivables = serializers.SerializerMethodField()
     has_outstanding = serializers.SerializerMethodField()
     whatsapp_url = serializers.SerializerMethodField()
-    phone_country = serializers.CharField(max_length=5, required=False, write_only=True, default="LB")
-    phone_national_number = serializers.CharField(max_length=30, required=False, write_only=True)
+    phone_country = serializers.CharField(
+        max_length=5, required=False, write_only=True, default="LB"
+    )
+    phone_national_number = serializers.CharField(
+        max_length=30, required=False, write_only=True
+    )
 
     class Meta:
         model = Customer
@@ -35,7 +39,13 @@ class CustomerSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "phone_e164", "archived_at", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "phone_e164",
+            "archived_at",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_whatsapp_url(self, obj) -> str:
         return get_whatsapp_url(obj.phone_e164)
@@ -44,21 +54,19 @@ class CustomerSerializer(serializers.ModelSerializer):
         if hasattr(obj, "_cached_financials"):
             return obj._cached_financials
 
-        # Get all non-archived receivables
-        receivables = obj.receivables.filter(archived_at__isnull=True)
-        total_orig = sum((r.original_amount for r in receivables), Decimal("0.00"))
+        receivables = getattr(obj, "_active_receivables", None)
+        if receivables is None:
+            from common.financials import receivable_balances
 
-        # Paid across non-voided payments
-        from payments.models import Payment
-        paid = Payment.objects.filter(
-            payment_promise__receivable__customer=obj,
-            payment_promise__receivable__archived_at__isnull=True,
-            voided_at__isnull=True,
-        ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+            receivables = list(
+                receivable_balances(obj.receivables.filter(archived_at__isnull=True))
+            )
+        total_orig = sum((r.original_amount for r in receivables), Decimal("0.00"))
+        paid = sum((r._paid_total for r in receivables), Decimal("0.00"))
 
         remaining = max(Decimal("0.00"), total_orig - paid)
         data = {
-            "count": receivables.count(),
+            "count": len(receivables),
             "paid": f"{paid:.2f}",
             "remaining": f"{remaining:.2f}",
             "has_outstanding": remaining > Decimal("0.00"),
@@ -79,6 +87,10 @@ class CustomerSerializer(serializers.ModelSerializer):
         return self._get_customer_financials(obj)["has_outstanding"]
 
     def validate(self, attrs):
+        if self.instance and self.instance.archived_at is not None:
+            raise serializers.ValidationError(
+                {"detail": "Restore this record before editing it."}
+            )
         raw_phone = attrs.get("phone_national_number") or attrs.get("phone_e164")
         country = attrs.get("phone_country", "LB")
 
@@ -89,6 +101,18 @@ class CustomerSerializer(serializers.ModelSerializer):
             e164 = normalize_phone_number(raw_phone, country)
             attrs["phone_e164"] = e164
 
+        if self.instance and "phone_e164" in attrs:
+            if (
+                Customer.objects.filter(
+                    business=self.context["request"].user.business,
+                    phone_e164=attrs["phone_e164"],
+                )
+                .exclude(pk=self.instance.pk)
+                .exists()
+            ):
+                raise serializers.ValidationError(
+                    {"phone": "A customer with this phone number already exists."}
+                )
         return attrs
 
     def create(self, validated_data):
@@ -100,7 +124,9 @@ class CustomerSerializer(serializers.ModelSerializer):
         phone_e164 = validated_data["phone_e164"]
 
         # Check if active customer exists with this number
-        existing = Customer.objects.filter(business=business, phone_e164=phone_e164).first()
+        existing = Customer.objects.filter(
+            business=business, phone_e164=phone_e164
+        ).first()
         if existing:
             if existing.archived_at is not None:
                 # Per spec: restore archived customer instead of creating duplicate

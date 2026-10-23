@@ -105,18 +105,24 @@ export async function apiRequest<T>(
     method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
     body?: unknown;
     signal?: AbortSignal;
+    idempotencyKey?: string;
   } = {}
 ): Promise<T> {
   // if not specified, default to GET method
   const method = options.method ?? "GET";
   const headers = new Headers({ Accept: "application/json" });
+  if (options.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey);
   if (method !== "GET") {
     // Login rotates Django's CSRF secret; obtain the current cookie for every unsafe request.
-    const csrfResponse = await fetch(`${basePath}auth/csrf/`, {
-      credentials: "include",
-      cache: "no-store",
-      signal: options.signal,
-    });
+    let csrfResponse: Response;
+    try {
+      csrfResponse = await fetch(`${basePath}auth/csrf/`, {
+        credentials: "include", cache: "no-store", signal: options.signal,
+      });
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      throw new ApiError(0, "The service is unavailable. Check your connection and try again.");
+    }
     // if the csrf request fails, throw an error
     if (!csrfResponse.ok) throw await responseError(csrfResponse);
     const token = cookieValue("csrftoken");

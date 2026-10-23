@@ -1,6 +1,8 @@
+import { StatusBadge } from "../components/StatusBadge";
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
+import { ListFilter } from "../components/ListFilter";
 import { EntityModal } from "../components/EntityModal";
 import {
   getPayments,
@@ -14,7 +16,10 @@ import { SaveFeedback } from "../components/SaveFeedback";
 const paymentMethods = Object.keys(methodLabels) as PaymentMethod[];
 
 export function PaymentsPage() {
-  const [methodFilter, setMethodFilter] = useState("All");
+  const [params] = useSearchParams();
+  const methodFilter = params.get("method") ?? "All";
+  const rawStatus = params.get("status");
+  const statusFilter = rawStatus === "completed" || rawStatus === "voided" ? rawStatus : "all";
   const [payments, setPayments] = useState<Payment[]>([]);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [confirmingVoid, setConfirmingVoid] = useState(false);
@@ -39,6 +44,7 @@ export function PaymentsPage() {
 
   const loadPayments = async () => {
     try {
+      setLoading(true);
       setError("");
       const result = await getPayments();
       setPayments(result);
@@ -63,12 +69,13 @@ export function PaymentsPage() {
     (payment) => payment.status === "Completed",
   );
 
-  const filteredPayments =
-    methodFilter === "All"
-      ? payments
-      : payments.filter((payment) => payment.method === methodFilter);
+  const filteredPayments = payments.filter((payment) =>
+    (!paymentMethods.includes(methodFilter as PaymentMethod) || payment.method === methodFilter) &&
+    (statusFilter === "all" || payment.status.toLowerCase() === statusFilter),
+  );
 
   const handleVoidPayment = async () => {
+    if (saving) return;
     if (!selectedPayment || voidReason.trim().length < 3) {
       setError("Please provide a reason of at least 3 characters.");
       return;
@@ -114,8 +121,9 @@ export function PaymentsPage() {
       </div>
 
       <SaveFeedback />
+      {statusFilter === "voided" && <p role="note">Voided payments remain in history and cannot be restored or edited.</p>}
 
-      {error && (
+      {error && !selectedPayment && (
         <div className="customer-empty" role="alert">
           <strong>Something went wrong</strong>
           <p>{error}</p>
@@ -133,30 +141,30 @@ export function PaymentsPage() {
         <article className="stat-card">
           <span>Total collected</span>
           <strong>
-            {formatCurrency(
+            {loading ? "Loading..." : error ? "Unavailable" : formatCurrency(
               completedPayments.reduce(
                 (total, payment) => total + payment.amount,
                 0,
               ),
             )}
           </strong>
-          <small>Completed payments only</small>
+          <small>Non-voided payments</small>
         </article>
 
         <article className="stat-card">
           <span>Payments</span>
-          <strong>{payments.length}</strong>
+          <strong>{loading ? "Loading..." : error ? "Unavailable" : payments.length}</strong>
           <small>Total transactions</small>
         </article>
 
         <article className="stat-card">
           <span>Latest payment</span>
           <strong>
-            {latestPayment ? formatCurrency(latestPayment.amount) : "$0.00"}
+            {loading ? "Loading..." : error ? "Unavailable" : latestPayment ? formatCurrency(latestPayment.amount) : "$0.00"}
           </strong>
           <small>
             {latestPayment
-              ? `Received ${displayDate(latestPayment.date)}`
+              ? `${latestPayment.status === "Voided" ? "Voided payment dated" : "Received"} ${displayDate(latestPayment.date)}`
               : "No payments recorded"}
           </small>
         </article>
@@ -169,18 +177,15 @@ export function PaymentsPage() {
             <span>{filteredPayments.length} payments shown</span>
           </div>
 
-          <select
-            className="status-filter"
-            value={methodFilter}
-            onChange={(event) => setMethodFilter(event.target.value)}
-          >
-            <option value="All">All methods</option>
-            {paymentMethods.map((method) => (
-              <option key={method} value={method}>
-                {methodLabels[method]}
-              </option>
-            ))}
-          </select>
+          <ListFilter name="status" label="Show" defaultValue="all" options={[
+            { value: "all", label: "All payments" },
+            { value: "completed", label: "Active payments" },
+            { value: "voided", label: "Voided payments" },
+          ]} />
+          <ListFilter name="method" label="Method" defaultValue="All" options={[
+            { value: "All", label: "All methods" },
+            ...paymentMethods.map((method) => ({ value: method, label: methodLabels[method] })),
+          ]} />
         </div>
 
         <div className="payment-list">
@@ -194,7 +199,7 @@ export function PaymentsPage() {
               <p>
                 {payments.length === 0
                   ? "No payments have been recorded yet."
-                  : "No payments match the selected payment method."}
+                  : "No payments match the selected filters."}
               </p>
             </div>
           ) : (
@@ -231,9 +236,7 @@ export function PaymentsPage() {
                   <strong>{methodLabels[payment.method]}</strong>
                 </div>
 
-                <span className="payment-status">
-                  {payment.status}
-                </span>
+                <StatusBadge status={payment.status} />
 
                 <button
                   type="button"
@@ -278,7 +281,7 @@ export function PaymentsPage() {
             </div>
             <div>
               <span>Status</span>
-              <strong>{selectedPayment.status}</strong>
+              <StatusBadge status={selectedPayment.status} />
             </div>
             {selectedPayment.status === "Voided" &&
               selectedPayment.voidReason && (
@@ -335,6 +338,7 @@ export function PaymentsPage() {
             }
           }}
         >
+          {error && <p role="alert" className="workspace-form-error">{error}</p>}
           <div className="form-group">
             <label htmlFor="void-reason">Reason for voiding</label>
             <textarea

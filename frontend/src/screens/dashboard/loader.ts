@@ -3,6 +3,10 @@ import { ApiError } from "../../api/client";
 import { authService } from "../auth/service";
 import { dashboardService } from "./service";
 
+export function dashboardSummaryLoader({ request }: LoaderFunctionArgs) {
+  return dashboardService.summary(new URL(request.url).search, request.signal);
+}
+
 export async function dashboardLoader({ request }: LoaderFunctionArgs) {
   let user;
   try {

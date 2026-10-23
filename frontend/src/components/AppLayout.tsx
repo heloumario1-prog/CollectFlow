@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Form, Link, Outlet, useLoaderData, useNavigation } from "react-router";
 import { AppSidebar } from "./AppSidebar";
 import type { dashboardLoader } from "../screens/dashboard/loader";
@@ -9,24 +9,47 @@ export function AppLayout() {
   const { user, business } = useLoaderData<typeof dashboardLoader>();
   const [menuOpen, setMenuOpen] = useState(false);
   const navigation = useNavigation();
+  const signingOut = navigation.state !== "idle" && navigation.formMethod?.toUpperCase() === "POST" && navigation.formAction?.split("?")[0].endsWith("/dashboard");
+  const sidebar = useRef<HTMLElement>(null);
+  const mainArea = useRef<HTMLDivElement>(null);
   const initials = user.full_name.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 
   useEffect(() => {
     if (!menuOpen) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousInert = mainArea.current?.inert ?? false;
+    if (mainArea.current) mainArea.current.inert = true;
+    sidebar.current?.querySelector<HTMLElement>("button, a")?.focus();
+    const media = window.matchMedia("(max-width: 850px)");
+    const resized = () => { if (!media.matches) setMenuOpen(false); };
+    media.addEventListener("change", resized);
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
+      if (event.key === "Escape") { event.preventDefault(); setMenuOpen(false); }
+      if (event.key === "Tab") {
+        const controls = Array.from(sidebar.current?.querySelectorAll<HTMLElement>("button, a[href]") ?? []).filter(element => element.getClientRects().length);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (first && ((event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last))) {
+          event.preventDefault(); (event.shiftKey ? last : first).focus();
+        }
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      media.removeEventListener("change", resized);
+      if (mainArea.current) mainArea.current.inert = previousInert;
+      if (trigger?.isConnected) trigger.focus();
+    };
   }, [menuOpen]);
 
   return <div className="app-shell">
     <a href="#dashboard-content" className="skip-link">Skip to content</a>
     {menuOpen && <button type="button" className="app-mobile-backdrop" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
-    <aside className={`app-sidebar ${menuOpen ? "app-sidebar-open" : ""}`} aria-label="Sidebar">
+    <aside ref={sidebar} className={`app-sidebar ${menuOpen ? "app-sidebar-open" : ""}`} aria-label="Sidebar">
+      {menuOpen && <button type="button" className="app-mobile-close" onClick={() => setMenuOpen(false)}>Close menu</button>}
       <AppSidebar role={user.role} onNavigate={() => setMenuOpen(false)} />
     </aside>
-    <div className="app-main-area">
+    <div ref={mainArea} className="app-main-area">
       <header className="app-topbar">
         <div className="app-topbar-workspace">
           <button className="app-menu-button" type="button" onClick={() => setMenuOpen((open) => !open)} aria-label={menuOpen ? "Close menu" : "Open menu"} aria-expanded={menuOpen}>
@@ -37,7 +60,7 @@ export function AppLayout() {
         <div className="app-profile">
           <span className="app-avatar" aria-hidden="true">{initials || "CF"}</span>
           <div className="app-profile-copy"><strong>{user.full_name}</strong><span>{user.role === "OWNER" ? "Manager" : "Staff"}</span></div>
-          <div className="app-profile-actions"><Link to="/settings/profile">Profile</Link><Form method="post" action="/dashboard"><button type="submit" disabled={navigation.state !== "idle"}>{navigation.state !== "idle" ? "Signing out…" : "Sign out"}</button></Form></div>
+          <div className="app-profile-actions"><Link to="/settings/profile">Profile</Link><Form method="post" action="/dashboard"><button type="submit" disabled={navigation.state !== "idle"}>{signingOut ? "Signing out…" : "Sign out"}</button></Form></div>
         </div>
       </header>
       {navigation.state === "loading" && <div className="app-navigation-loading" role="status">Loading page…</div>}

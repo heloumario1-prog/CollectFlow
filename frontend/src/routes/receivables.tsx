@@ -1,9 +1,11 @@
-import { Link } from "react-router";
+import { StatusBadge } from "../components/StatusBadge";
+import { Link, useFetcher, useLoaderData, useSearchParams } from "react-router";
+import { ListFilter } from "../components/ListFilter";
+import type { receivablesLoader } from "../screens/receivables/loader";
+import type { receivablesAction } from "../screens/receivables/action";
 import { useEffect, useState } from "react";
 import { EntityModal } from "../components/EntityModal";
 import {
-  archiveReceivableById,
-  listReceivables,
   statusInfo,
   type ApiReceivable,
 } from "../data/receivables";
@@ -13,43 +15,33 @@ const formatCurrency = (amount: string | number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(Number(amount));
 
-const displayDate = (date: string) =>
-  new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+const displayDate = (date: string | null) =>
+  date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+  }) : "Not specified";
 
 export function ReceivablesPage() {
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [receivables, setReceivables] = useState<ApiReceivable[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [params] = useSearchParams();
+  const rawStatus = params.get("status");
+  const statusFilter = ["outstanding", "partial", "overdue", "paid"].includes(rawStatus ?? "") ? rawStatus : "all";
+  const { receivables, archive } = useLoaderData<typeof receivablesLoader>();
+  const lifecycle = useFetcher<typeof receivablesAction>();
+  const pending = lifecycle.state !== "idle";
   const [selected, setSelected] = useState<ApiReceivable | null>(null);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
-  const [archiveError, setArchiveError] = useState("");
-  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    listReceivables()
-      .then((data) => {
-        if (active) setReceivables(data);
-      })
-      .catch((e) => {
-        if (active)
-          setError(e instanceof Error ? e.message : "Could not load receivables.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    if (lifecycle.state === "idle" && lifecycle.data && "message" in lifecycle.data) {
+      setSelected(null);
+      setConfirmingArchive(false);
+    }
+  }, [lifecycle.state, lifecycle.data]);
 
   const filteredReceivables =
     statusFilter === "all"
@@ -71,26 +63,6 @@ export function ReceivablesPage() {
     0,
   );
 
-  async function handleArchive() {
-    if (!selected) return;
-    setArchiving(true);
-    setArchiveError("");
-    try {
-      await archiveReceivableById(selected.id);
-      setReceivables((current) =>
-        current.filter((item) => item.id !== selected.id),
-      );
-      setConfirmingArchive(false);
-      setSelected(null);
-    } catch (e) {
-      setArchiveError(
-        e instanceof Error ? e.message : "Could not archive the receivable.",
-      );
-    } finally {
-      setArchiving(false);
-    }
-  }
-
   return (
     <section className="content-page">
       <div className="page-header-row">
@@ -108,6 +80,8 @@ export function ReceivablesPage() {
       </div>
 
       <SaveFeedback />
+      {lifecycle.data && "message" in lifecycle.data && <p role="status" className="save-feedback">{lifecycle.data.message}</p>}
+      {lifecycle.data && "error" in lifecycle.data && <p role="alert">{lifecycle.data.error}</p>}
 
       <div className="receivable-summary">
         <article className="stat-card">
@@ -136,25 +110,22 @@ export function ReceivablesPage() {
             <span>{filteredReceivables.length} receivables shown</span>
           </div>
 
-          <select
-            className="status-filter"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option value="all">All statuses</option>
-            <option value="outstanding">Outstanding</option>
-            <option value="partial">Partially paid</option>
-            <option value="overdue">Overdue</option>
-            <option value="paid">Paid</option>
-          </select>
+          <ListFilter name="archive" label="Show" defaultValue="active" options={[
+            { value: "active", label: "Active receivables" },
+            { value: "archived", label: "Archived receivables" },
+            { value: "all", label: "All receivables" },
+          ]} />
+          <ListFilter name="status" label="Balance status" defaultValue="all" options={[
+            { value: "all", label: "All statuses" },
+            { value: "outstanding", label: "Open" },
+            { value: "partial", label: "Partially paid" },
+            { value: "overdue", label: "Overdue" },
+            { value: "paid", label: "Paid" },
+          ]} />
         </div>
 
         <div className="receivable-list">
-          {loading && <p>Loading...</p>}
-          {error && <p style={{ color: "#b42318", fontSize: 12 }}>{error}</p>}
-
-          {!loading &&
-            filteredReceivables.map((receivable) => {
+          {filteredReceivables.map((receivable) => {
               const info = statusInfo(receivable.status);
               return (
                 <div className="receivable-row" key={receivable.id}>
@@ -190,10 +161,9 @@ export function ReceivablesPage() {
                     <strong>{displayDate(receivable.due_date)}</strong>
                   </div>
 
-                  <span className={`status-badge ${info.className}`}>
-                    {info.label}
-                  </span>
+                  <StatusBadge status={receivable.archived_at ? "Archived" : receivable.status} label={receivable.archived_at ? "Archived" : info.label} />
 
+                  <div className="record-row-actions">
                   <button
                     type="button"
                     className="secondary-button"
@@ -201,16 +171,27 @@ export function ReceivablesPage() {
                   >
                     View
                   </button>
+                  {receivable.archived_at && (
+                    <lifecycle.Form method="post">
+                      <input type="hidden" name="intent" value="restore" />
+                      <input type="hidden" name="id" value={receivable.id} />
+                      <button type="submit" className="secondary-button" disabled={pending}
+                        aria-label={`Restore receivable ${receivable.id}`}>
+                        {pending && lifecycle.formData?.get("id") === String(receivable.id) ? "Restoring..." : "Restore"}
+                      </button>
+                    </lifecycle.Form>
+                  )}
+                  </div>
                 </div>
               );
             })}
 
-          {!loading && !error && filteredReceivables.length === 0 && (
+          {filteredReceivables.length === 0 && (
             <div className="customer-empty">
               <strong>No receivables found</strong>
               <p>
                 {receivables.length === 0
-                  ? "Add your first receivable to get started."
+                  ? archive === "archived" ? "No archived receivables. Archived records appear here and can be restored." : "No receivables in this view. Add one or choose another filter."
                   : "No receivables match the selected status."}
               </p>
             </div>
@@ -224,6 +205,7 @@ export function ReceivablesPage() {
           description={`${selected.description || "Receivable"} for ${selected.customer_detail.name}.`}
           onClose={() => setSelected(null)}
         >
+          {lifecycle.data && "error" in lifecycle.data && <p role="alert">{lifecycle.data.error}</p>}
           <div className="entity-modal-details">
             <div><span>Customer</span><strong>{selected.customer_detail.name}</strong></div>
             <div><span>Reference</span><strong>{selected.reference || "—"}</strong></div>
@@ -233,7 +215,7 @@ export function ReceivablesPage() {
             <div><span>Outstanding</span><strong>{formatCurrency(selected.remaining_amount)}</strong></div>
             <div><span>Issue date</span><strong>{displayDate(selected.issue_date)}</strong></div>
             <div><span>Due date</span><strong>{displayDate(selected.due_date)}</strong></div>
-            <div><span>Status</span><strong>{statusInfo(selected.status).label}</strong></div>
+            <div><span>Status</span><StatusBadge status={selected.archived_at ? "Archived" : selected.status} label={selected.archived_at ? "Archived" : statusInfo(selected.status).label} /></div>
           </div>
           <div className="entity-modal-actions">
             <button
@@ -243,23 +225,22 @@ export function ReceivablesPage() {
             >
               Close
             </button>
-            <Link
-              to={`/receivables/${selected.id}/edit`}
-              className="secondary-button"
-              onClick={() => setSelected(null)}
-            >
-              Edit receivable
-            </Link>
-            <button
-              type="button"
-              className="danger-button"
-              onClick={() => {
-                setArchiveError("");
-                setConfirmingArchive(true);
-              }}
-            >
-              Archive receivable
-            </button>
+            {selected.archived_at ? (
+              <lifecycle.Form method="post">
+                <input type="hidden" name="intent" value="restore" />
+                <input type="hidden" name="id" value={selected.id} />
+                <button className="primary-button" type="submit" disabled={pending}>
+                  {pending ? "Restoring..." : "Restore receivable"}
+                </button>
+              </lifecycle.Form>
+            ) : <>
+              <Link to={`/receivables/${selected.id}/edit`} className="secondary-button" onClick={() => setSelected(null)}>
+                Edit receivable
+              </Link>
+              <button type="button" className="danger-button" onClick={() => setConfirmingArchive(true)}>
+                Archive receivable
+              </button>
+            </>}
           </div>
         </EntityModal>
       )}
@@ -267,28 +248,26 @@ export function ReceivablesPage() {
       {selected && confirmingArchive && (
         <EntityModal
           title="Archive receivable?"
-          description={`Archive ${selected.description || "this receivable"} for ${selected.customer_detail.name}? It will be hidden from the list. A receivable with an unpaid balance and existing promises or payments cannot be archived.`}
-          onClose={() => setConfirmingArchive(false)}
+          description={`Archive ${selected.description || "this receivable"} for ${selected.customer_detail.name}? Find it later under Show: Archived receivables. A receivable with an unpaid balance and existing promises or payments cannot be archived.`}
+          onClose={() => { if (!pending) setConfirmingArchive(false); }}
         >
-          {archiveError && (
-            <p style={{ color: "#b42318", fontSize: 12 }}>{archiveError}</p>
-          )}
+          {lifecycle.data && "error" in lifecycle.data && <p role="alert">{lifecycle.data.error}</p>}
           <div className="entity-modal-actions">
             <button
               type="button"
               className="secondary-button"
+              disabled={pending}
               onClick={() => setConfirmingArchive(false)}
             >
               Cancel
             </button>
-            <button
-              type="button"
-              className="danger-button"
-              onClick={handleArchive}
-              disabled={archiving}
-            >
-              {archiving ? "Archiving..." : "Archive receivable"}
-            </button>
+            <lifecycle.Form method="post">
+              <input type="hidden" name="intent" value="archive" />
+              <input type="hidden" name="id" value={selected.id} />
+              <button type="submit" className="danger-button" disabled={pending}>
+                {pending ? "Archiving..." : "Archive receivable"}
+              </button>
+            </lifecycle.Form>
           </div>
         </EntityModal>
       )}

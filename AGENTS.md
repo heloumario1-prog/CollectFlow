@@ -4,14 +4,14 @@
 
 CollectFlow is a multi-tenant receivables-management application for Lebanese small businesses and suppliers that sell to customers on credit. It replaces scattered WhatsApp messages, notebooks, and spreadsheets with one record of customers, receivables, payment promises, payments, and collection follow-ups.
 
-This file states repository-wide product decisions and routes to the detailed MVP contract in `docs/mvp-contract.md`. Auth, business, and staff API routes exist, and the frontend contains in-memory screen prototypes. Most financial and integration behavior below remains **target** work. For task-specific implementation details, use `api/AGENTS.md` when working under `api/` and `frontend/AGENTS.md` when working under `frontend/`; inspect only the files relevant to the task.
+This file states repository-wide product decisions and routes to the detailed MVP contract in `docs/mvp-contract.md`. All product API areas and the mounted SPA are connected. Distinguish tested implementation from the remaining database, security, and operational targets documented below. For task-specific implementation details, use `api/AGENTS.md` when working under `api/` and `frontend/AGENTS.md` when working under `frontend/`; inspect only the files relevant to the task.
 
 Use this authority order when information conflicts:
 
 1. The user's current, explicit instruction.
 2. The approved product decisions here and the relevant requirements in `docs/mvp-contract.md`.
 3. The code, migrations, and package scripts for facts about what exists today.
-4. The root and package README files, which may contain incomplete or stale setup text.
+4. The root README, which contains shared setup and validation instructions.
 
 Never describe target behavior as implemented without inspecting and testing it.
 
@@ -33,40 +33,37 @@ These decisions are not open to reinterpretation during implementation:
 - The interface is English and left-to-right.
 - WhatsApp is manual through a `wa.me` link. CollectFlow does not send or synchronize messages.
 - Domain and financial records are never hard-deleted through the API. Use deactivate, archive, cancel, or void operations.
+- Follow-ups support separate completion and removal. The interface calls removal ?Delete follow-up?; it archives the record and actor instead of permanently deleting history. Completion does not clear the customer?s next follow-up date.
 - Direct edits to active payments remain allowed. The current schema does not record who edited a payment; this is an accepted MVP limitation, not an audit feature.
 
 If a requested change contradicts one of these decisions, point out the conflict before implementing it.
 
 ## Current repository state
 
-The current code has partial auth and business APIs plus disconnected frontend prototypes. It is not a working end-to-end product.
+The mounted application is connected to Django; older descriptions of disconnected collection prototypes are obsolete. See `docs/project-review.md` for verification scope and remaining limitations.
 
 ### Backend today
 
-- `api/` contains Django, Django REST Framework, and seven domain apps.
-- Each domain model and its initial migration exist. Auth, staff, and business serializers/views have been added; customer, receivable, promise, payment, and follow-up serializers/views remain placeholders.
-- `api/config/urls.py` mounts Django admin and `/api/v1/auth/`, `/api/v1/business/`, and `/api/v1/staff/`. The other product API areas are not mounted.
-- Test files contain no product tests, so implemented routes are not yet verified by a product suite.
-- `AUTH_USER_MODEL = "accounts.User"` and DRF session authentication are configured. `accounts.UserManager` still has no `create_superuser`, and Django-admin permission behavior is incomplete.
-- Registration creates a business and owner atomically in a serializer; login, logout, current-user, password-change, owner-only staff, and business endpoints have view implementations. Do not infer that every target security rule below is met: the error envelope, rate limits, one-owner constraint, registration race handling, and active-user/session behavior still need verification or implementation.
-- The phone serializer imports `phonenumbers`, but it is not declared in `api/pyproject.toml` or the lockfile; clean installs cannot rely on these API routes until the dependency is added.
-- `Business.phone_e164` is currently nullable and blank, contrary to the approved target.
-- The schema does not enforce one `OWNER` per business.
-- `Receivable.status` is stored, while the target statuses depend on live balances and dates. It must not become a second, stale source of truth.
-- Cross-model business consistency is not enforced by the database. For example, a receivable can currently be assigned a customer or creator from another business unless application code prevents it.
-- Settings still contain a hard-coded secret, `DEBUG=True`, empty `ALLOWED_HOSTS`, no default DRF permission, and no CORS or CSRF-origin configuration. `SILENCED_SYSTEM_CHECKS` suppresses auth checks. Do not treat the settings as production-ready.
-
-The custom user setting now exists, but its migration history still needs deliberate handling. Do not apply or rewrite authentication migrations against a populated database without first agreeing on a migration or development-database reset strategy.
+- All auth, business, staff, customer, receivable, promise, payment, follow-up, dashboard, and audit routes are mounted under `/api/v1/`.
+- Session authentication and CSRF are used. Owner/staff permissions and tenant-scoped related inputs are enforced on the API. Registration is atomic and handles duplicate-email races without creating an orphan business.
+- Financial balances and status filters use live payment aggregates. Payments on cancelled promises still reduce debt; voided payments do not. API `KEPT` is displayed as Completed.
+- Domain writes hold an outer transaction and business row lock through validation, saving, and audit. This intentionally serializes mutations within one business. PostgreSQL concurrency tests cover promise capacity, payment capacity, and keyed payment retries.
+- Payment creation supports an optional `Idempotency-Key` header for compatibility; the connected form supplies it. `payments.0002_paymentrequest` adds durable replay records without changing existing financial rows. Follow-up completion and retained removal use `followups.0002_followup_lifecycle`.
+- `config.test_settings` uses RAM-only SQLite; `scripts/test_postgres.py` creates a newly named disposable PostgreSQL test database. Neither uses existing records as fixtures. `scripts/check_data.py` reports read-only integrity counts.
+- Development settings are explicit. Production requires an environment secret, allowed hosts, trusted HTTPS origins, secure cookies, and TLS. Application auth throttles use Django's cache; multi-worker deployments still need a shared cache and edge limits.
+- The schema still permits nullable business phones, multiple owners, and cross-tenant ORM relationships. API validation enforces these rules; database constraints and custom-user/admin changes require a separately reviewed migration strategy. Do not silently change or reset authentication history.
+- Direct payment edits retain the original recorder. The payment schema still has no edit actor/timestamp; do not present this as a complete financial audit system.
 
 ### Frontend today
 
-- `frontend/` uses React 19, React Router 8 Data Mode, TypeScript, Vite, and Tailwind CSS.
-- `src/main.tsx` registers several product-shaped routes; most screens read or mutate in-memory `src/data/` modules. Dashboard loader/action exports are placeholders. Login and registration do not call Django. These screens are disposable UI prototypes, not examples for connected features.
-- There is no credentialed API client, CSRF handling, protected routing, or frontend test setup.
-- `frontend/vite.config.ts` has no development `/api` proxy.
-- `frontend/nginx.conf` serves the SPA but does not proxy `/api` to Django.
-- `frontend/package.json` has `dev`, `build`, `preview`, and `typecheck` scripts; it has no `test` or `lint` script.
-- `frontend/README.md` is upstream template text and incorrectly discusses an SSR server. The current Docker image builds a static SPA and serves `dist/` with Nginx.
+- React 19, React Router 8, TypeScript, Vite and Tailwind form a static SPA. The shared credentialed client handles CSRF, cancellation, replay keys, and safe errors.
+- All mounted collection screens use real APIs. Customer history includes receivables, promises, payments and visible follow-ups, plus the manual WhatsApp link. Welcome-page preview figures are explicitly illustrative.
+- The dashboard consumes the backend summary and exposes today/week/month/custom collection periods. It does not recalculate authoritative balances in the browser.
+- Customer/receivable archive filters and restoration, promise lifecycle filters, payment method/history filters, staff filters, and collection searches remain meaningful even when empty. Financial records cannot be hard-deleted. Follow-up Delete archives its history; Mark completed is independent.
+- Shared dialog focus is initialized on opening, preserved while typing, trapped during keyboard navigation, and returned to an available trigger. Background content is inert while a modal or mobile navigation drawer is open.
+- Colors are centralized in `frontend/src/css/palette.css`: navy text/navigation, neutral backgrounds, white surfaces, teal actions, and semantic success/warning/error/info tokens. No separate theme toggle exists.
+- Vite proxies `/api` to Django (default 8000, configurable with `API_PROXY_TARGET`); Nginx proxies `/api/` to Compose's API. Local development here uses API 8001 and Vite 5173 because 8000 belongs to another application.
+- Frontend checks: `npm run typecheck`, `npm run build`, `npm test`, and optional isolated `npm run test:browser`. Browser setup is documented in `docs/project-review.md`.
 
 ## Repository map
 
@@ -81,10 +78,10 @@ The custom user setting now exists, but its migration history still needs delibe
 | `api/payments/` | Cash or Whish payments and immutable void history |
 | `api/followups/` | Timestamped notes linked to a customer and optionally a receivable/promise |
 | `api/AGENTS.md` | Backend implementation status and task-specific guidance |
-| `frontend/src/main.tsx` | Current React Router definition |
-| `frontend/src/routes/`, `frontend/src/data/` | Current prototype screens and in-memory data |
+| `frontend/src/main.tsx`, `frontend/src/router.tsx` | SPA mounting, shared styles, route definitions, loaders/actions and loading/error boundaries |
+| `frontend/src/routes/`, `frontend/src/data/` | Mounted collection screens and API adapters |
 | `frontend/AGENTS.md` | Target frontend route, feature, service, and type structure |
-| `frontend/src/styles.css` | Current global styles |
+| `frontend/src/css/` | Central navy/teal palette, shared styles and page layouts |
 | `compose.yaml` | PostgreSQL, API, and production-built frontend containers |
 | `docs/mvp-contract.md` | Detailed approved domain, API, integration, and testing requirements |
 | `docs/CollectFlow_End_to_End_Workflow.docx` | Team discussion copy of the approved workflow |
@@ -132,7 +129,7 @@ The connected frontend needs one credentialed API client, CSRF headers on unsafe
 
 ## Integration and deployment
 
-The current Vite and Nginx configurations have no `/api` proxy. The target is a same-origin `/api/v1/` path through Nginx to Django, with session authentication and CSRF protection. Follow [How the services connect](docs/mvp-contract.md#how-the-services-connect) for local integration, production security, and operations work.
+Vite and Nginx proxy same-origin `/api/v1/` requests to Django, with session authentication and CSRF protection. Vite defaults to port 8000; `API_PROXY_TARGET` supports an alternate local API port. Follow [How the services connect](docs/mvp-contract.md#how-the-services-connect) for local integration, production security, and operations work.
 
 ## Technology stack
 
@@ -149,7 +146,7 @@ The current Vite and Nginx configurations have no `/api` proxy. The target is a 
 
 Use [Setup, run, and validation commands](docs/mvp-contract.md#setup-run-and-validation-commands) for the full Docker, API, and frontend workflows. The API runs on port 8000 and the frontend on port 5173 by default. Review custom-user migration history before changing a shared or persistent database.
 
-For code changes, run the relevant commands that exist today: from `api/`, `uv run --no-sync python manage.py check`, migration checks, the backend tests and format checks; from `frontend/`, `npm run typecheck` and `npm run build`. There is no frontend test or lint script yet. The [CI baseline](docs/mvp-contract.md#continuous-integration-baseline) and [implementation order](docs/mvp-contract.md#recommended-implementation-order) are target guidance.
+For code changes, run the relevant commands that exist today: from `api/`, `uv run --no-sync python manage.py check`, migration checks, the backend tests and format checks; from `frontend/`, `npm run typecheck` and `npm run build`. The frontend has API/service regression tests and an isolated browser review script; no lint script is configured. The [CI baseline](docs/mvp-contract.md#continuous-integration-baseline) and [implementation order](docs/mvp-contract.md#recommended-implementation-order) are target guidance.
 
 ## Testing expectations
 

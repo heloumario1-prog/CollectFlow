@@ -9,7 +9,7 @@ import {
 } from "../data/promises";
 import { setSaveFeedback } from "../data/save-feedback";
 
-const errorStyle = { color: "#b42318", fontSize: "11px", margin: 0 };
+const errorStyle = { color: "var(--cf-danger)", fontSize: "13px", margin: 0 };
 
 const money = (value: string | number) =>
   new Intl.NumberFormat("en-US", {
@@ -193,7 +193,7 @@ function PromiseFormScreen({ isEdit }: { isEdit: boolean }) {
           </p>
         </div>
 
-        {error && <p style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
+        {error && <p role="alert" style={{ ...errorStyle, marginBottom: 16 }}>{error}</p>}
         {fieldErrors.detail && (
           <p style={{ ...errorStyle, marginBottom: 16 }}>{fieldErrors.detail}</p>
         )}
@@ -218,7 +218,7 @@ function PromiseFormScreen({ isEdit }: { isEdit: boolean }) {
               ))}
             </select>
             {selectedReceivable && (
-              <p style={{ fontSize: "11px", margin: 0 }}>
+              <p style={{ fontSize: "13px", margin: 0 }}>
                 Available to promise: {money(selectedReceivable.unpromised_amount)}
               </p>
             )}
@@ -226,7 +226,7 @@ function PromiseFormScreen({ isEdit }: { isEdit: boolean }) {
               <p style={errorStyle}>{fieldErrors.receivable}</p>
             )}
             {!isEdit && receivableOptions.length === 0 && (
-              <p style={{ fontSize: "11px", margin: 0 }}>
+              <p style={{ fontSize: "13px", margin: 0 }}>
                 There are no receivables with a balance yet. Add a receivable first.
               </p>
             )}

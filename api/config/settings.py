@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 load_dotenv()  # Load environment variables from .env file
@@ -24,12 +26,22 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-wyuxk(rrp^arkd%94lnq7@!+dqes-xz-@oii3ze6jgll^ffe-5"
+DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() in ("true", "1", "yes")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("Set DJANGO_SECRET_KEY when DJANGO_DEBUG=false.")
+    SECRET_KEY = "django-insecure-wyuxk(rrp^arkd%94lnq7@!+dqes-xz-@oii3ze6jgll^ffe-5"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]").split(
+        ","
+    )
+    if host.strip()
+]
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -44,7 +56,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
-
     "businesses",
     "accounts",
     "customers",
@@ -133,7 +144,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Beirut"
 
 USE_I18N = True
 
@@ -150,14 +161,17 @@ STATIC_URL = "static/"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
     ),
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.IsAuthenticated",
-    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 25,
-    "DATETIME_FORMAT": "%Y-%m-%dT%H:%M:%SZ",
+    "NUM_PROXIES": int(os.getenv("DJANGO_TRUSTED_PROXY_COUNT", "0")),
+    "DEFAULT_THROTTLE_RATES": {
+        "login_address": "20/min",
+        "login_account": "10/min",
+        "registration": "5/min",
+        "password": "20/min",
+    },
     "DATE_FORMAT": "%Y-%m-%d",
 }
 
@@ -197,11 +211,18 @@ MAILERS = {
     },
 }
 
-AUTH_USER_MODEL = "accounts.User"
-
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
-    ],
-}
 SILENCED_SYSTEM_CHECKS = ["auth.E003", "auth.W004"]
+
+# Production is explicit; local HTTP development keeps working with DEBUG=true.
+if not DEBUG:
+    CSRF_TRUSTED_ORIGINS = [
+        origin.strip()
+        for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    CORS_ALLOWED_ORIGINS = CSRF_TRUSTED_ORIGINS
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "0"))
+    MAILERS = {"default": {"BACKEND": "django.core.mail.backends.smtp.EmailBackend"}}

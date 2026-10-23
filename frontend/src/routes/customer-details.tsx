@@ -1,3 +1,5 @@
+import { customerService } from "../screens/customers/service";
+import { StatusBadge } from "../components/StatusBadge";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
@@ -6,6 +8,7 @@ import {
   type ApiCustomer,
 } from "../data/customers";
 import { EntityModal } from "../components/EntityModal";
+import { customerHistory } from "../screens/customers/history";
 
 const money = (value: string) =>
   new Intl.NumberFormat("en-US", {
@@ -23,6 +26,19 @@ export function CustomerDetailsPage() {
   const [confirming, setConfirming] = useState(false);
   const [archiveError, setArchiveError] = useState("");
   const [archiving, setArchiving] = useState(false);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof customerHistory>> | null>(null);
+  const [historyError, setHistoryError] = useState("");
+
+  useEffect(() => {
+    if (!id) return;
+    const controller = new AbortController();
+    setHistory(null);
+    setHistoryError("");
+    customerHistory(id, controller.signal).then(setHistory).catch(error => {
+      if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : "History is unavailable.");
+    });
+    return () => controller.abort();
+  }, [id]);
 
   useEffect(() => {
     if (!id) {
@@ -53,8 +69,13 @@ export function CustomerDetailsPage() {
     setArchiving(true);
     setArchiveError("");
     try {
-      await archiveCustomerById(id);
-      navigate("/customers");
+      if (customer?.archived_at) {
+        await customerService.restore(id);
+        setCustomer(await getCustomerById(id));
+      } else {
+        await archiveCustomerById(id);
+        navigate("/customers");
+      }
     } catch (e) {
       setArchiveError(
         e instanceof Error ? e.message : "Could not archive the customer.",
@@ -99,28 +120,32 @@ export function CustomerDetailsPage() {
             </div>
             <div>
               <h1>{customer.name}</h1>
+              <StatusBadge status={customer.archived_at ? "Archived" : "Active"} />
               <p className="page-description">{customer.phone_e164}</p>
             </div>
           </div>
         </div>
 
         <div className="customer-actions">
-          <Link
+          <a href={customer.whatsapp_url} target="_blank" rel="noopener noreferrer" className="secondary-button">Open WhatsApp</a>
+          {!customer.archived_at && <Link
             to={`/customers/${customer.id}/edit`}
             className="secondary-button"
           >
             Edit customer
-          </Link>
+          </Link>}
           <button
             type="button"
             className="danger-button"
-            onClick={() => setConfirming(true)}
+            onClick={() => customer.archived_at ? void handleArchive() : setConfirming(true)}
+            disabled={archiving}
           >
-            Archive customer
+            {archiving ? "Saving..." : customer.archived_at ? "Restore customer" : "Archive customer"}
           </button>
         </div>
       </div>
 
+      {archiveError && <p role="alert">{archiveError}</p>}
       <div className="customer-stats-grid">
         <article className="stat-card">
           <span>Receivables</span>
@@ -130,7 +155,7 @@ export function CustomerDetailsPage() {
         <article className="stat-card">
           <span>Paid</span>
           <strong>{money(customer.total_paid)}</strong>
-          <small>Total payments received</small>
+          <small>Payments on active receivables</small>
         </article>
         <article className="stat-card">
           <span>Outstanding</span>
@@ -160,24 +185,39 @@ export function CustomerDetailsPage() {
           </div>
           <div className="details-item">
             <span>Added on</span>
-            <strong>{new Date(customer.created_at).toLocaleDateString()}</strong>
+            <strong>{new Date(customer.created_at).toLocaleDateString("en-US", { timeZone: "Asia/Beirut" })}</strong>
           </div>
         </div>
       </div>
 
+      <section className="content-panel customer-history" aria-label="Customer history">
+        <h2>Customer history</h2>
+        {historyError ? <p role="alert">{historyError}</p> : !history ? <p role="status">Loading history...</p> : <>
+          <h3>Receivables</h3>
+          {history.receivables.length ? history.receivables.map(item => <div className="history-row" key={item.id}><strong>{item.reference || `Receivable #${item.id}`}</strong><span>Due {item.due_date}</span><span>{money(item.remaining_amount)} remaining</span><StatusBadge status={item.archived_at ? "Archived" : item.status} /></div>) : <p>No receivables yet.</p>}
+          <h3>Payment promises</h3>
+          {history.promises.length ? history.promises.map(item => <div className="history-row" key={item.id}><strong>Promise #{item.id}</strong><span>Due {item.promised_on}</span><span>{money(item.remaining_amount)} remaining</span><StatusBadge status={item.status} />{item.cancel_reason && <p>Cancellation reason: {item.cancel_reason}</p>}</div>) : <p>No payment promises yet.</p>}
+          <h3>Payments</h3>
+          {history.payments.length ? history.payments.map(item => <div className="history-row" key={item.id}><strong>{money(item.amount)}</strong><span>{item.paid_on}</span><span>{item.method === "CASH" ? "Cash" : "Whish"}</span><StatusBadge status={item.is_voided ? "Voided" : "Recorded"} />{item.void_reason && <p>Void reason: {item.void_reason}</p>}</div>) : <p>No payments yet.</p>}
+          <h3>Follow-ups</h3>
+          {history.followUps.length ? history.followUps.map(item => <div className="history-row" key={item.id}><time>{new Date(item.occurred_at).toLocaleString("en-US", { timeZone: "Asia/Beirut" })}</time><StatusBadge status={item.completed_at ? "Completed" : "Pending"} /><p>{item.note}</p></div>) : <p>No follow-up notes yet.</p>}
+        </>}
+      </section>
+
       {confirming && (
         <EntityModal
           title="Archive customer?"
-          description={`Archive ${customer.name}? They will be hidden from the customer list. A customer with an unpaid balance cannot be archived.`}
-          onClose={() => setConfirming(false)}
+          description={`Archive ${customer.name}? Find them later under Customers → Show → Archived customers, where you can restore them. A customer with an unpaid balance cannot be archived.`}
+          onClose={() => { if (!archiving) setConfirming(false); }}
         >
           {archiveError && (
-            <p style={{ color: "#b42318", fontSize: 12 }}>{archiveError}</p>
+            <p style={{ color: "var(--cf-danger)", fontSize: 12 }}>{archiveError}</p>
           )}
           <div className="entity-modal-actions">
             <button
               type="button"
               className="secondary-button"
+              disabled={archiving}
               onClick={() => setConfirming(false)}
             >
               Cancel

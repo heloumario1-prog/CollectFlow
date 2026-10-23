@@ -9,6 +9,7 @@ import {
 import { AuthField } from "../../components/AuthField";
 import type { AuthActionResult } from "./action";
 import { loginSchema, registerSchema } from "./schema";
+import { registrationNotice } from "./registrationNotice";
 
 type FormValues = {
   businessName: string;
@@ -46,7 +47,8 @@ function validationError(
 export function AccountForm({ mode }: { mode: "login" | "register" }) {
   //   by default the form is in login mode, but if the mode prop is "register", then the form is in register mode
   const registering = mode === "register";
-  const [values, setValues] = useState(emptyValues);
+  const [values, setValues] = useState(() => ({ ...emptyValues, email: registering ? "" : registrationNotice.email() }));
+  useEffect(() => { if (!registering) registrationNotice.clear(); }, [registering]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -124,8 +126,8 @@ export function AccountForm({ mode }: { mode: "login" | "register" }) {
         }
       </title>
       <header className="mb-8">
-        <p className="mb-4 flex items-center gap-3 font-quest-mono text-[10px] tracking-[0.18em] text-quest-gold-border uppercase">
-          <span className="h-px w-6 bg-quest-gold" aria-hidden="true" />
+        <p className="mb-4 flex items-center gap-3 font-quest-mono text-[10px] tracking-[0.18em] text-quest-accent-border uppercase">
+          <span className="h-px w-6 bg-quest-accent" aria-hidden="true" />
           {registering ? "Get started" : "Welcome back"}
         </p>
         <h1
@@ -148,10 +150,10 @@ export function AccountForm({ mode }: { mode: "login" | "register" }) {
           <div
             ref={noticeRef}
             tabIndex={-1}
-            className={`mb-6 rounded-quest border border-l-2 p-4 text-sm/[1.6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-quest-gold-border ${
+            className={`mb-6 rounded-quest border border-l-2 p-4 text-sm/[1.6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-quest-accent-border ${
               formError
-                ? "border-quest-red-border/60 bg-quest-error-tint"
-                : "border-quest-gold-border-soft border-l-quest-gold bg-quest-gold-tint"
+                ? "border-quest-danger-border/60 bg-quest-error-tint"
+                : "border-quest-accent-border-soft border-l-quest-accent bg-quest-accent-tint"
             }`}
           >
             {/* print that he has to go to login and log in  */}
@@ -225,7 +227,7 @@ export function AccountForm({ mode }: { mode: "login" | "register" }) {
         <button
           type="submit"
           disabled={pending}
-          className="flex min-h-12 w-full cursor-pointer items-center justify-center gap-3 rounded-quest border border-quest-gold-border bg-quest-gold px-6 py-3 text-base font-semibold text-quest-background shadow-quest-sm transition-colors duration-300 hover:bg-quest-gold-hover focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-quest-gold-border active:shadow-quest-glow disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
+          className="flex min-h-12 w-full cursor-pointer items-center justify-center gap-3 rounded-quest border border-quest-accent-border bg-quest-accent px-6 py-3 text-base font-semibold text-quest-background shadow-quest-sm transition-colors duration-300 hover:bg-quest-accent-hover focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-quest-accent-border active:shadow-quest-glow disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
         >
           {pending
             ? registering
@@ -255,7 +257,7 @@ export function AccountForm({ mode }: { mode: "login" | "register" }) {
         {registering ? "Already have an account?" : "Don’t have an account?"}{" "}
         <Link
           to={registering ? "/login" : "/register"}
-          className="inline-block font-semibold text-quest-gold-border underline decoration-quest-gold-border/40 underline-offset-4 hover:text-quest-parchment focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-quest-gold-border"
+          className="inline-block font-semibold text-quest-accent-border underline decoration-quest-accent-border/40 underline-offset-4 hover:text-quest-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-quest-accent-border"
         >
           {registering ? "Sign in" : "Create account"}
         </Link>

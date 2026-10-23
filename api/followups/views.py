@@ -1,24 +1,28 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
-
+from audit.services import log_audit_event
+from common.permissions import IsBusinessMember
+from common.writes import BusinessWriteLockMixin
 from followups.models import FollowUp
 from followups.serializers import FollowUpSerializer
-from common.permissions import IsBusinessMember
-from audit.services import log_audit_event
+from followups.services import change_lifecycle
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 
-class FollowUpViewSet(viewsets.ModelViewSet):
+class FollowUpViewSet(BusinessWriteLockMixin, viewsets.ModelViewSet):
     """
     CRUD for manual WhatsApp Follow-up notes. Tenant-scoped.
     DELETE returns 405 Method Not Allowed.
     """
+
     serializer_class = FollowUpSerializer
     permission_classes = [permissions.IsAuthenticated, IsBusinessMember]
     http_method_names = ["get", "post", "patch", "head", "options"]
 
     def get_queryset(self):
         qs = FollowUp.objects.filter(
-            customer__business=self.request.user.business
+            customer__business=self.request.user.business,
+            archived_at__isnull=True,
         ).select_related("customer", "receivable", "payment_promise", "created_by")
 
         customer_id = self.request.query_params.get("customer")
@@ -34,6 +38,18 @@ class FollowUpViewSet(viewsets.ModelViewSet):
             qs = qs.filter(payment_promise_id=promise_id)
 
         return qs.order_by("-occurred_at", "-created_at")
+
+    @action(detail=True, methods=["post"])
+    def archive(self, request, pk=None):
+        change_lifecycle(
+            followup_id=pk, actor=request.user, archive=True, request=request
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"])
+    def complete(self, request, pk=None):
+        followup = change_lifecycle(followup_id=pk, actor=request.user, request=request)
+        return Response(self.get_serializer(followup).data)
 
     def perform_update(self, serializer):
         followup = self.get_object()

@@ -2,30 +2,35 @@
 
 Scope: `api/` and all of its subdirectories. Read the repository-root `AGENTS.md` for the approved product contract; this file explains the backend that exists and how to extend it. The user's current instruction takes precedence. Where the root guide's **current-state** description is stale, inspect code and migrations rather than repeating it. Never present a target feature as implemented without checking its route, implementation, and tests.
 
-## Start here
+## Current implementation
 
-- Entry points: `manage.py` loads `config.settings`; `config/urls.py` mounts HTTP routes; `config/asgi.py` and `config/wsgi.py` expose Django.
-- Stack: Django + Django REST Framework (DRF), PostgreSQL via Psycopg, Python `>=3.12`, `uv` with `uv.lock`. `api/Dockerfile` uses Python 3.13. The root `compose.yaml` starts PostgreSQL before the API.
-- Seven apps: `businesses`, `accounts`, `customers`, `receivables`, `payment_promises`, `payments`, `followups`. Each owns its model and initial migration. There is no shared service/query layer yet.
-- `config/settings.py` currently reads PostgreSQL connection variables from the environment (and loads `.env`), sets `AUTH_USER_MODEL = "accounts.User"`, and configures DRF session authentication. It still has a hard-coded secret, `DEBUG=True`, empty `ALLOWED_HOSTS`, no default DRF permission, and suppressed auth checks; these are implementation gaps, not a production configuration.
-- `api/README.md` is empty. Use the root guide and the implementation instead of inferring behavior from a README.
+Read `../docs/project-review.md` and `../docs/api-contract.md` for checked behavior and limitations. All domain routes, dashboard, and owner-only audit listing are mounted. `common/financials.py` supplies batched balance annotations; `common/writes.py` keeps domain validation, save, and audit inside one transaction with a tenant row lock. Related serializer choices are tenant scoped. Domain hard deletes are disabled.
 
-## Implemented HTTP path (verify again before editing)
+Session/CSRF authentication, atomic registration with duplicate-email race handling, manager-only staff/business writes, active-membership permissions, and cache-based auth throttles are implemented. `config/settings.py` has one DRF configuration with pagination and session authentication. Production settings require explicit environment configuration; local DEBUG settings are not a production deployment.
 
-```text
-request -> config/urls.py -> app urls.py -> DRF view
-        -> permission/authentication -> serializer validation
-        -> ORM model(s) -> PostgreSQL -> serializer/Response
+`payments.0002_paymentrequest` adds durable replay protection for requests carrying `Idempotency-Key`. Keys are scoped to the authenticated business and fingerprints must match. Existing unkeyed consumers remain compatible. The frontend sends keys. This migration creates only a new table; do not reset existing records or authentication migrations.
+
+Run from `api/`:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py check
+.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
+.\.venv\Scripts\python.exe manage.py test --settings=config.test_settings
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+.\.venv\Scripts\python.exe scripts/check_data.py
 ```
 
-| Route prefix | Current implementation | Main files |
-| --- | --- | --- |
-| `/admin/` | Django admin URL is mounted; app `admin.py` files have no model registrations. | `config/urls.py`, `*/admin.py` |
-| `/api/v1/auth/` | CSRF cookie, register, login, logout, current user, change password. | `accounts/urls.py`, `accounts/views.py`, `accounts/serializers.py` |
-| `/api/v1/business/` | Authenticated read; owner-only partial update. | `businesses/urls.py`, `businesses/views.py`, `businesses/serializers.py` |
-| `/api/v1/staff/` | Owner-only list/create/detail/update, deactivate/reactivate, password reset. | `accounts/staff_urls.py`, `accounts/views.py`, `accounts/permissions.py` |
+SQLite tests are isolated in RAM and skip real row-lock tests. The PostgreSQL script requires CREATEDB permission and creates/removes only a newly named test database. `check_data.py` is read-only against configured records. Test data must never come from or modify the user's existing database. Format changed files with Black and isort's `--profile black`.
 
-No customer, receivable, promise, payment, follow-up, or dashboard route is mounted. Their `serializers.py` files are empty, their `views.py` files are placeholders, and there are no product tests in the app `tests.py` files. The root guide's planned endpoints, error envelope, pagination, schema, balance services, and idempotency behavior are **targets**, not current capabilities.
+Database-level exact-one-owner, required-phone, and cross-model tenant constraints still need reviewed migrations. Django-admin/custom-user completeness, generated OpenAPI tooling, shared-cache/edge throttling, and operational deployment checks remain separate gaps; never claim production readiness from passing product tests.
+
+Promise API `KEPT` displays Completed. Payment and promise edits must preserve valid commitments on both balance chains. Cancelled promises and voided payments are immutable; active payments on cancelled promises can be corrected if resulting commitments remain valid. Restore archived customer/receivable chains before new financial activity or voiding.
+
+### Follow-up lifecycle
+
+`/api/v1/followups/` and `/api/v1/follow-ups/` share the same viewset. List/detail/update exclude archived notes and scope to the authenticated business. Authenticated owners and staff of an active business may POST `:id/archive/` (204) or `:id/complete/` (200). The UI labels archive as Delete; HTTP DELETE remains 405. Completion is idempotent. Both actions use explicit transactions, row locking, server-assigned actors/timestamps, and audit events in `followups/services.py`. Completion does not change `Customer.next_follow_up_on` or financial records.
+
+Migration `followups.0002_followup_lifecycle` adds four nullable fields: `archived_at`, `archived_by`, `completed_at`, `completed_by`; existing notes remain visible and pending. No authentication migration or data reset is involved. `completed_at` is read-only in API responses; lifecycle actor fields cannot be supplied by clients. Prefer retaining the additive columns when rolling back application code; reversing this migration discards lifecycle metadata.
 
 ### How the implemented layers interact
 
@@ -55,8 +60,8 @@ User through their creator/recorder and, where applicable, lifecycle actor FKs.
 | `User` | One `business` FK, email normalized by the manager, hashed password, full name, role, active/admin flags. | Case-insensitive email uniqueness exists; there is no conditional one-`OWNER`-per-business constraint. |
 | `Customer` | Business, contact/notes, `next_follow_up_on`, creator and archive history. | `(business, phone_e164)` is unique. Database does not enforce creator/archiver's business. |
 | `Receivable` | Business, customer, original `DecimalField` amount, USD, dates, stored `status`, creator/archive history. | Positive amount and `due_date >= issue_date` (when issue date exists) checks. Stored status can become stale; cross-business FKs are not checked. |
-| `PaymentPromise` | Receivable, amount, promised date, creator and cancellation history. | Positive amount and cancellation-reason checks. `status_for(remaining, today=...)` derives a status using Beirut's date; no shared balance/query implementation exists. |
-| `Payment` | Promise, amount/date, `CASH` or `WHISH`, recorder and void history. | Positive amount, method, and void-reason checks. No idempotency record, edit actor, or `updated_at` exists. |
+| `PaymentPromise` | Receivable, amount, promised date, creator and cancellation history. | Positive amount and cancellation-reason checks. `status_for(remaining, today=...)` derives a status using Beirut's date; shared annotations and derived status filters live in `common/financials.py` and the viewsets. |
+| `Payment` | Promise, amount/date, `CASH` or `WHISH`, recorder and void history. | Positive amount, method, and void-reason checks. `PaymentRequest` stores durable keyed creation results; the Payment schema has no edit actor or `updated_at`. |
 | `FollowUp` | Customer, optional receivable/promise, occurred timestamp, note and creator. | No database check that optional links form the same customer/receivable chain. |
 
 Tenant identity comes only from the authenticated `request.user.business`. For scoped ORM access use `business=...` on users/customers/receivables, `receivable__business=...` on promises, `payment_promise__receivable__business=...` on payments, and `customer__business=...` on follow-ups. Apply the scope in list and detail querysets **before** resolving an ID, including custom actions and related-field choices; a foreign-tenant ID should resolve as not found. The current database schema cannot enforce every cross-table business match, so validate them in application code and cover them with tests.
@@ -80,9 +85,9 @@ From `api/`, with PostgreSQL running and root `.env` populated with usable `POST
 uv sync --frozen
 uv run --no-sync python manage.py check
 uv run --no-sync python manage.py makemigrations --check --dry-run
-uv run --no-sync python manage.py test
+uv run --no-sync python manage.py test --settings=config.test_settings
 uv run --no-sync black --check .
-uv run --no-sync isort --check-only .
+uv run --no-sync isort --profile black --check-only .
 ```
 
 Use `uv run --no-sync python manage.py runserver` for local development. For a new disposable database, run `uv run --no-sync python manage.py migrate` before starting the server. Do not run migrations against a shared or populated database without reviewing the plan. If a check cannot run because of dependencies or database access, report that limitation accurately; do not call it passing.

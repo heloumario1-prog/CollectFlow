@@ -146,11 +146,11 @@ remaining_amount = promise.amount - paid_amount
 Promise status precedence:
 
 1. `CANCELLED` when `cancelled_at` is set.
-2. `KEPT` when `remaining_amount == 0`.
+2. `KEPT` when `remaining_amount == 0`. The interface labels this Completed; the API value remains `KEPT`. It is derived from non-voided payments, never a manual completion flag.
 3. `BROKEN` when unpaid and `promised_on` is before today in Beirut.
 4. `PENDING` otherwise.
 
-The model currently has a `status_for()` helper, but no shared query/filter implementation. Avoid duplicating slightly different status logic across layers.
+The model has a `status_for()` helper; shared live aggregates are in `common/financials.py`, and API status filters apply the same precedence. Avoid duplicating slightly different balance logic.
 
 ### Validation and lifecycle rules
 
@@ -174,27 +174,32 @@ Balance-sensitive promise and payment mutations require `transaction.atomic()` p
 
 ## API target and current route status
 
-The target is a versioned, flat API under `/api/v1/`. Auth, business, and staff routes are mounted with partial implementations. The remaining rows describe target behavior, not existing endpoints. Inspect serializers, views, and tests before relying on any mounted route.
+The versioned, flat API is mounted under `/api/v1/`. All rows below have implementations. See `api-contract.md` for the implemented wire contract and `project-review.md` for tested coverage and remaining targets.
 
 | Area | Current routes | Target behavior |
 | --- | --- | --- |
 | `/auth/` | Mounted | CSRF, registration, login, logout, current user, password change |
 | `/business/` | Mounted | Authenticated read; owner-only update; no standalone create |
 | `/staff/` | Mounted | Owner-only list/create/update plus deactivate, reactivate, and reset-password actions |
-| `/customers/` | Not mounted | List/create/retrieve/update plus archive and restore actions |
-| `/receivables/` | Not mounted | List/create/retrieve/update plus archive and restore actions |
-| `/promises/` | Not mounted | List/create/retrieve/update plus permanent cancel action |
-| `/payments/` | Not mounted | List/create/retrieve/update plus permanent void action |
-| `/follow-ups/` | Not mounted | List/create/retrieve/update |
-| `/dashboard/` | Not mounted | Summary for today, this week, this month, or a custom range |
+| `/customers/` | Mounted | List/create/retrieve/update plus archive and restore actions |
+| `/receivables/` | Mounted | List/create/retrieve/update plus archive and restore actions |
+| `/promises/` | Mounted | List/create/retrieve/update plus permanent cancel action |
+| `/payments/` | Mounted | List/create/retrieve/update plus permanent void action |
+| `/follow-ups/`, `/followups/` | Mounted | List/create/retrieve/update; POST `:id/archive/` (204) removes from lists while retaining history; POST `:id/complete/` (200) marks completed |
+| `/dashboard/` | Mounted | Summary for today, this week, this month, or a custom range |
 
-For the target API, use page-number pagination with 25 records by default. Add resource-appropriate search, status, lifecycle, relationship, date, due-date, method, and ordering filters. Return dates as `YYYY-MM-DD`, timezone-aware datetimes as ISO 8601 values, and money as strings.
+Domain and audit lists use page-number pagination with 25 records by default; the staff endpoint retains its existing array contract. Add resource-appropriate search, status, lifecycle, relationship, date, due-date, method, and ordering filters. Return dates as `YYYY-MM-DD`, timezone-aware datetimes as ISO 8601 values, and money as strings.
+
+Follow-up completion and removal are separate operations. `completed_at` is read-only; completion is idempotent and retains the note in the list. UI "Delete follow-up" uses the archive action; archives retain notes, actors, and timestamps, and are excluded from list/detail/update and subsequent lifecycle actions. Both owners and staff require membership of the same active business. Actions are transactional and audited. Completing or removing a note does not change the customer's next follow-up date or any financial balances. Migration `followups.0002_followup_lifecycle` adds nullable lifecycle fields without changing existing records. Roll back application code while retaining these columns to avoid losing metadata.
 
 All unsupported `DELETE` requests for domain data return `405 Method Not Allowed`; they do not silently archive or void records.
 
 Keep multi-model transactions and balance rules in explicit domain/service functions. Serializers own representation and request validation; views own HTTP orchestration and permissions. Do not scatter financial rules across all three layers.
 
 ### API reliability and contract
+
+Implemented compatibility notes: the payment form sends a durable `Idempotency-Key`; unkeyed legacy API consumers remain accepted. Replays return the original 201 response, and changed payloads return 409. `payments.0002_paymentrequest` adds only the replay table. Domain writes hold a transaction/business lock across validation and saving. Invalid date/relationship/status filters return 400; promise and receivable statuses use live aggregates. Current errors retain DRF field dictionaries/details, and unauthenticated session requests return 403. The uniform envelope and 401 distinction below remain targets, not claims about today's wire contract. Application auth throttles are implemented; shared-cache and edge hardening remain deployment requirements.
+
 
 - Publish and maintain an OpenAPI schema for implemented endpoints. The schema, serializers, and tests must agree on required fields, response fields, status codes, filters, pagination, and error shapes.
 - Use one documented JSON error envelope for validation, authentication, permission, conflict, throttling, and unexpected errors. Do not leak stack traces, SQL, internal paths, or raw exception messages.
@@ -208,7 +213,7 @@ Keep multi-model transactions and balance rules in explicit domain/service funct
 
 ### Local development
 
-The Vite development server runs on port 5173 and Django runs on port 8000. The current Vite config does not connect them. Implement either a Vite `/api` proxy or a complete credentialed CORS/CSRF configuration before session authentication can work reliably across those origins. Prefer one documented approach rather than mixing both.
+The Vite development server runs on port 5173 and proxies `/api` to Django at `http://127.0.0.1:8000`. Set `API_PROXY_TARGET` in the frontend environment to use another API port, and restart Vite. For example, run Django on port 8001 if another application occupies 8000. See [README.md](../README.md#run-this-checkout) for PowerShell commands and startup diagnostics. Requests remain same-origin and retain session/CSRF protection.
 
 ### Target deployed request path
 
@@ -225,7 +230,7 @@ Browser
 
 Only Django accesses PostgreSQL. The frontend never writes the database directly and never supplies authoritative balances, statuses, tenant IDs, roles, or audit actors.
 
-The current Nginx file lacks the `/api` proxy, so this production path is target work.
+The current Nginx file proxies `/api/` to the Compose API service at `api:8000`.
 
 ### Production security baseline
 
@@ -261,7 +266,7 @@ docker compose run --rm api uv run --no-sync python manage.py migrate
 docker compose up api frontend
 ```
 
-The API is exposed at `http://localhost:8000` and the Nginx-served frontend at `http://localhost:5173` by default. `AUTH_USER_MODEL` is configured, but review custom-user migration history before initializing or changing a shared or persistent database. The Nginx frontend still lacks an `/api` proxy.
+The API is exposed at `http://localhost:8000` and the Nginx-served frontend at `http://localhost:5173` by default. `AUTH_USER_MODEL` is configured, but review custom-user migration history before initializing or changing a shared or persistent database. The Nginx frontend proxies `/api/` to the API service.
 
 ### Local API workflow
 
@@ -299,7 +304,7 @@ npm run typecheck
 npm run build
 ```
 
-There is currently no frontend test or lint command. Add the tool and package script before documenting one.
+Frontend API/service regression tests run with `npm test`; isolated browser checks run with `npm run test:browser` using `project-review.md`. No lint command is configured.
 
 ### Continuous integration baseline
 

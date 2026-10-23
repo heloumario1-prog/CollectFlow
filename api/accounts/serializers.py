@@ -1,12 +1,11 @@
-from django.contrib.auth.password_validation import validate_password
-from django.db import transaction
-from django.contrib.auth import authenticate
-
 import phonenumbers
+from businesses.models import Business
+from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from .models import User
-from businesses.models import Business
 
 
 class BusinessRegistrationSerializer(serializers.ModelSerializer):
@@ -30,9 +29,7 @@ class BusinessRegistrationSerializer(serializers.ModelSerializer):
         value = value.strip()
 
         if not value:
-            raise serializers.ValidationError(
-                "Business name cannot be empty."
-            )
+            raise serializers.ValidationError("Business name cannot be empty.")
 
         return value
 
@@ -43,14 +40,10 @@ class BusinessRegistrationSerializer(serializers.ModelSerializer):
         try:
             parsed_phone = phonenumbers.parse(value, "LB")
         except phonenumbers.NumberParseException:
-            raise serializers.ValidationError(
-                "Enter a valid phone number."
-            )
+            raise serializers.ValidationError("Enter a valid phone number.")
 
         if not phonenumbers.is_valid_number(parsed_phone):
-            raise serializers.ValidationError(
-                "Enter a valid phone number."
-            )
+            raise serializers.ValidationError("Enter a valid phone number.")
 
         return phonenumbers.format_number(
             parsed_phone,
@@ -66,15 +59,14 @@ class OwnerRegistrationSerializer(serializers.Serializer):
     password = serializers.CharField(
         write_only=True,
         min_length=8,
+        trim_whitespace=False,
     )
 
     def validate_full_name(self, value):
         value = value.strip()
 
         if not value:
-            raise serializers.ValidationError(
-                "Full name cannot be empty."
-            )
+            raise serializers.ValidationError("Full name cannot be empty.")
 
         return value
 
@@ -82,9 +74,7 @@ class OwnerRegistrationSerializer(serializers.Serializer):
         value = value.strip().lower()
 
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError(
-                "A user with this email already exists."
-            )
+            raise serializers.ValidationError("A user with this email already exists.")
 
         return value
 
@@ -97,24 +87,27 @@ class RegisterSerializer(serializers.Serializer):
     business = BusinessRegistrationSerializer()
     owner = OwnerRegistrationSerializer()
 
-    @transaction.atomic
     def create(self, validated_data):
         business_data = validated_data["business"]
         owner_data = validated_data["owner"]
+        try:
+            with transaction.atomic():
+                business = Business.objects.create(**business_data)
+                return User.objects.create_user(
+                    business=business,
+                    email=owner_data["email"],
+                    password=owner_data["password"],
+                    full_name=owner_data["full_name"],
+                    role=User.Role.OWNER,
+                )
+        except IntegrityError:
+            if User.objects.filter(email__iexact=owner_data["email"]).exists():
+                raise serializers.ValidationError(
+                    {"owner": {"email": "A user with this email already exists."}}
+                )
+            raise
 
-        business = Business.objects.create(
-            **business_data
-        )
 
-        user = User.objects.create_user(
-            business=business,
-            email=owner_data["email"],
-            password=owner_data["password"],
-            full_name=owner_data["full_name"],
-            role=User.Role.OWNER,
-        )
-
-        return user
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -138,13 +131,13 @@ class LoginSerializer(serializers.Serializer):
             password=attrs["password"],
         )
 
-        if user is None:
-            raise serializers.ValidationError(
-                "Invalid email or password."
-            )
+        if user is None or not user.business.is_active:
+            raise serializers.ValidationError("Invalid email or password.")
 
         attrs["user"] = user
         return attrs
+
+
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(
         write_only=True,
@@ -160,9 +153,7 @@ class ChangePasswordSerializer(serializers.Serializer):
         user = self.context["request"].user
 
         if not user.check_password(value):
-            raise serializers.ValidationError(
-                "Current password is incorrect."
-            )
+            raise serializers.ValidationError("Current password is incorrect.")
 
         return value
 
@@ -173,10 +164,14 @@ class ChangePasswordSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs["old_password"] == attrs["new_password"]:
             raise serializers.ValidationError(
-                {"new_password": "New password must be different from the current password."}
+                {
+                    "new_password": "New password must be different from the current password."
+                }
             )
 
         return attrs
+
+
 class StaffSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -204,9 +199,7 @@ class StaffCreateSerializer(serializers.Serializer):
         value = value.strip()
 
         if not value:
-            raise serializers.ValidationError(
-                "Full name cannot be empty."
-            )
+            raise serializers.ValidationError("Full name cannot be empty.")
 
         return value
 
@@ -214,9 +207,7 @@ class StaffCreateSerializer(serializers.Serializer):
         value = value.strip().lower()
 
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError(
-                "A user with this email already exists."
-            )
+            raise serializers.ValidationError("A user with this email already exists.")
 
         return value
 
@@ -233,9 +224,7 @@ class StaffUpdateSerializer(serializers.Serializer):
         value = value.strip()
 
         if not value:
-            raise serializers.ValidationError(
-                "Full name cannot be empty."
-            )
+            raise serializers.ValidationError("Full name cannot be empty.")
 
         return value
 
@@ -249,9 +238,7 @@ class StaffUpdateSerializer(serializers.Serializer):
         )
 
         if exists:
-            raise serializers.ValidationError(
-                "A user with this email already exists."
-            )
+            raise serializers.ValidationError("A user with this email already exists.")
 
         return value
 

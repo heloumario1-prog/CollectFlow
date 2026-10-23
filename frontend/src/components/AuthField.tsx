@@ -46,11 +46,11 @@ export function AuthField({
           aria-describedby={
             error ? `${id}-error` : hint ? `${id}-hint` : undefined
           }
-          className={`auth-input min-h-12 w-full min-w-0 rounded-quest border bg-quest-surface px-4 py-3 text-base leading-6 text-quest-parchment placeholder:text-quest-muted ${
+          className={`auth-input min-h-12 w-full min-w-0 rounded-quest border bg-quest-surface px-4 py-3 text-base leading-6 text-quest-text placeholder:text-quest-muted ${
             type === "password" ? "pr-14" : ""
           } ${
             error
-              ? "border-quest-red-border ring-1 ring-quest-red-border"
+              ? "border-quest-danger-border ring-1 ring-quest-danger-border"
               : "border-quest-border"
           }`}
         />
@@ -60,7 +60,7 @@ export function AuthField({
             onClick={() => setRevealed(!revealed)}
             aria-label={`${revealed ? "Hide" : "Show"} ${label.toLowerCase()}`}
             aria-pressed={revealed}
-            className="absolute inset-y-0 right-1 my-auto grid size-11 cursor-pointer place-items-center rounded-quest text-quest-muted hover:text-quest-parchment focus-visible:outline-2 focus-visible:outline-quest-gold-border"
+            className="absolute inset-y-0 right-1 my-auto grid size-11 cursor-pointer place-items-center rounded-quest text-quest-muted hover:text-quest-text focus-visible:outline-2 focus-visible:outline-quest-accent-border"
           >
             <svg
               className="size-[18px]"
@@ -83,7 +83,7 @@ export function AuthField({
       {error ? (
         <p
           id={`${id}-error`}
-          className="mt-1.5 text-sm leading-5 text-quest-red-text"
+          className="mt-1.5 text-sm leading-5 text-quest-danger-text"
         >
           {error}
         </p>

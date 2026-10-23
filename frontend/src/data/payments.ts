@@ -1,5 +1,5 @@
 
-import { apiRequest } from "../api/client";
+import { ApiError, apiRequest } from "../api/client";
 
 export type PaymentMethod = "CASH" | "WHISH";
 
@@ -96,12 +96,14 @@ export async function getPayment(
   try {
     const payment = await apiRequest<ApiPayment>(`payments/${id}/`);
     return fromApi(payment);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
     return undefined;
   }
 }
 
 export type PaymentInput = {
+  paymentPromiseId?: number;
   amount: number;
   date: string;
   method: PaymentMethod;
@@ -112,10 +114,11 @@ export type PaymentInput = {
  * Record a new payment against a payment promise.
  */
 export async function addPayment(
-  input: PaymentInput & { paymentPromiseId: number },
+  input: PaymentInput & { paymentPromiseId: number; idempotencyKey?: string },
 ): Promise<void> {
   await apiRequest<ApiPayment>("payments/", {
     method: "POST",
+    idempotencyKey: input.idempotencyKey,
     body: {
       payment_promise: input.paymentPromiseId,
       amount: input.amount.toFixed(2),
@@ -136,6 +139,7 @@ export async function updatePayment(
   await apiRequest<ApiPayment>(`payments/${id}/`, {
     method: "PATCH",
     body: {
+      ...(input.paymentPromiseId ? { payment_promise: input.paymentPromiseId } : {}),
       amount: input.amount.toFixed(2),
       paid_on: input.date,
       method: input.method,

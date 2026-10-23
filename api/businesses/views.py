@@ -1,8 +1,8 @@
+from accounts.permissions import IsOwner
+from common.permissions import IsBusinessMember
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from accounts.permissions import IsOwner
 
 from .serializers import BusinessSerializer
 
@@ -10,7 +10,7 @@ from .serializers import BusinessSerializer
 class BusinessView(APIView):
     def get_permissions(self):
         if self.request.method == "GET":
-            return [IsAuthenticated()]
+            return [IsAuthenticated(), IsBusinessMember()]
 
         return [IsOwner()]
 

@@ -12,5 +12,7 @@ class IsOwner(BasePermission):
         return bool(
             user
             and user.is_authenticated
+            and user.is_active
+            and user.business.is_active
             and user.role == User.Role.OWNER
         )

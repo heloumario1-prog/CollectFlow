@@ -31,3 +31,19 @@ class FollowUp(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    archived_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        related_name="archived_followups",
+        null=True,
+        blank=True,
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completed_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        related_name="completed_followups",
+        null=True,
+        blank=True,
+    )

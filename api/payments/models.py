@@ -45,10 +45,7 @@ class Payment(models.Model):
             models.CheckConstraint(
                 condition=(
                     models.Q(voided_at__isnull=True)
-                    | (
-                        models.Q(void_reason__isnull=False)
-                        & ~models.Q(void_reason="")
-                    )
+                    | (models.Q(void_reason__isnull=False) & ~models.Q(void_reason=""))
                 ),
                 name="payment_void_reason_required",
             ),
@@ -56,3 +53,20 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment {self.pk}"
+
+
+class PaymentRequest(models.Model):
+    """Durable replay protection for a business's payment creation requests."""
+
+    business = models.ForeignKey("businesses.Business", on_delete=models.PROTECT)
+    key = models.CharField(max_length=100)
+    fingerprint = models.CharField(max_length=64)
+    response_data = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "key"], name="payment_request_business_key_unique"
+            )
+        ]

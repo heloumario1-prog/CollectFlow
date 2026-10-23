@@ -1,10 +1,12 @@
+import { listPromises, type ApiPromise } from "../data/promises";
+import { ApiError } from "../api/client";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useCustomerOptions } from "../data/customers";
 import {
   addFollowUp,
-  getFollowUps,
+  getFollowUp,
   updateFollowUp,
   type FollowUp,
 } from "../data/follow-ups";
@@ -22,11 +24,16 @@ export function EditFollowUpPage() {
 function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { options: customers, loading: customersLoading } = useCustomerOptions();
+  const { options: customers, loading: customersLoading, error: customersError } = useCustomerOptions();
 
   const [existing, setExisting] = useState<FollowUp | null>(null);
   const [receivables, setReceivables] = useState<ApiReceivable[]>([]);
   const [customerId, setCustomerId] = useState("");
+  const [promises, setPromises] = useState<ApiPromise[]>([]);
+  const [promiseId, setPromiseId] = useState("");
+  const [nextDate, setNextDate] = useState("");
+  const [clearSchedule, setClearSchedule] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [receivableId, setReceivableId] = useState("");
   const [date, setDate] = useState(() => {
     const now = new Date();
@@ -45,24 +52,23 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
       try {
         setError("");
 
-        const [allReceivables, allFollowUps] = await Promise.all([
+        const [allReceivables, found, allPromises] = await Promise.all([
           listReceivables(),
-          getFollowUps(),
+          isEdit && id ? getFollowUp(id) : Promise.resolve(null),
+          listPromises(),
         ]);
 
         if (cancelled) return;
 
         setReceivables(allReceivables);
+        setPromises(allPromises);
 
         if (isEdit) {
-            const found = allFollowUps.find(
-  (item) => item.id === Number(id),
-);
-
           if (!found) {
             setError("Follow-up not found.");
           } else {
             setExisting(found);
+            setPromiseId(found.paymentPromiseId ? String(found.paymentPromiseId) : "");
             setCustomerId(String(found.customerId));
             setReceivableId(
               found.receivableId === null ? "" : String(found.receivableId),
@@ -82,6 +88,7 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
       } catch {
         if (!cancelled) {
           setError("Could not load the follow-up form. Please try again.");
+          setLoadFailed(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -101,6 +108,7 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     setError("");
 
     if (!customerId || !date || !notes.trim()) {
@@ -115,6 +123,8 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
         customerId: Number(customerId),
         receivableId: receivableId ? Number(receivableId) : null,
         date: new Date(date).toISOString(),
+        paymentPromiseId: promiseId ? Number(promiseId) : null,
+        nextFollowUpOn: nextDate || (clearSchedule ? null : undefined),
         notes: notes.trim(),
       };
 
@@ -127,8 +137,8 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
       }
 
       navigate("/follow-ups");
-    } catch {
-      setError("Could not save the follow-up. Check your entries and try again.");
+    } catch (error) {
+      setError(error instanceof ApiError ? [error.message, ...Object.values(error.fields)].join(" ") : "Could not save the follow-up. Check your entries and try again.");
     } finally {
       setSaving(false);
     }
@@ -144,15 +154,16 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
     );
   }
 
-  if (error === "Follow-up not found.") {
+  if (loadFailed || customersError || (!loading && isEdit && !existing)) {
     return (
       <section className="content-page">
         <div className="customer-empty">
-          <strong>Follow-up not found</strong>
-          <p>This record may not exist or may no longer be available.</p>
+          <strong>Follow-up form unavailable</strong>
+          <p>{customersError || error || "This record may not exist or may no longer be available."}</p>
           <Link to="/follow-ups" className="secondary-button">
             Back to follow-ups
           </Link>
+          <button type="button" className="secondary-button" onClick={() => window.location.reload()}>Try again</button>
         </div>
       </section>
     );
@@ -165,6 +176,7 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
           <Link to="/follow-ups" className="back-link">
             Back to follow-ups
           </Link>
+          <button type="button" className="secondary-button" onClick={() => window.location.reload()}>Try again</button>
 
           <p className="eyebrow">FOLLOW-UPS</p>
           <h1>{isEdit ? "Edit follow-up" : "Record Follow-up"}</h1>
@@ -197,6 +209,7 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
               onChange={(event) => {
                 setCustomerId(event.target.value);
                 setReceivableId("");
+                setPromiseId("");
               }}
             >
               <option value="">Select customer</option>
@@ -216,7 +229,7 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
               id="followup-receivable"
               value={receivableId}
               disabled={!customerId}
-              onChange={(event) => setReceivableId(event.target.value)}
+              onChange={(event) => { setReceivableId(event.target.value); setPromiseId(""); }}
             >
               <option value="">No related receivable</option>
               {availableReceivables.map((item) => (
@@ -229,6 +242,19 @@ function FollowUpFormScreen({ isEdit }: { isEdit: boolean }) {
             </select>
           </div>
 
+          <div className="form-group">
+            <label htmlFor="followup-promise">Related promise (optional)</label>
+            <select id="followup-promise" value={promiseId} disabled={!customerId} onChange={event => setPromiseId(event.target.value)}>
+              <option value="">No related promise</option>
+              {promises.filter(promise => promise.customer_id === Number(customerId) && (!receivableId || promise.receivable === Number(receivableId)) && !promise.receivable_archived_at).map(promise => <option key={promise.id} value={promise.id}>Promise #{promise.id} - {promise.promised_on}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="followup-next-date">Next follow-up date (optional)</label>
+            <input id="followup-next-date" type="date" value={nextDate} onChange={event => { setNextDate(event.target.value); setClearSchedule(false); }} />
+            <small>Leave blank to keep the customer's current schedule.</small>
+            <label className="follow-up-clear-schedule"><input type="checkbox" checked={clearSchedule} onChange={event => { setClearSchedule(event.target.checked); if(event.target.checked) setNextDate(""); }} />Clear the customer's next follow-up date</label>
+          </div>
           <div className="form-group">
             <label htmlFor="followup-date">Contact date and time</label>
             <input

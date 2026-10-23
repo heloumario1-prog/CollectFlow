@@ -1,16 +1,18 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
-from django.db.models import Sum
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
 
-from receivables.models import Receivable
-from payment_promises.models import PaymentPromise
-from payments.models import Payment
-from customers.models import Customer
+from common.financials import promise_balances, receivable_balances
 from common.permissions import IsBusinessMember
 from common.timezone_utils import get_beirut_today
+from customers.models import Customer
+from django.db.models import Sum
+from payment_promises.models import PaymentPromise
+from payments.models import Payment
+from receivables.models import Receivable
+from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 
 class DashboardView(APIView):
@@ -19,6 +21,7 @@ class DashboardView(APIView):
     Filters by period: 'today', 'this_week', 'this_month' (default), or custom 'from' and 'to'.
     Uses Asia/Beirut timezone for all date thresholds.
     """
+
     permission_classes = [permissions.IsAuthenticated, IsBusinessMember]
 
     def get(self, request):
@@ -30,9 +33,25 @@ class DashboardView(APIView):
         date_from_param = request.query_params.get("from")
         date_to_param = request.query_params.get("to")
 
+        if bool(date_from_param) != bool(date_to_param):
+            raise ValidationError({"from": "Provide both start and end dates."})
+        if period not in ("today", "this_week", "this_month", "custom"):
+            raise ValidationError(
+                {"period": "Choose today, this_week, this_month, or custom."}
+            )
+        if period == "custom" and not date_from_param:
+            raise ValidationError({"from": "Choose a start and end date."})
         if date_from_param and date_to_param:
-            range_start = date_from_param
-            range_end = date_to_param
+            try:
+                range_start = date.fromisoformat(date_from_param)
+                range_end = date.fromisoformat(date_to_param)
+            except ValueError:
+                raise ValidationError({"from": "Use valid YYYY-MM-DD dates."})
+            if range_end < range_start:
+                raise ValidationError(
+                    {"to": "End date must be on or after the start date."}
+                )
+            period = "custom"
         elif period == "today":
             range_start = today
             range_end = today
@@ -54,11 +73,8 @@ class DashboardView(APIView):
         total_overdue = Decimal("0.00")
         total_unpromised = Decimal("0.00")
 
-        for rec in active_receivables:
-            paid = Payment.objects.filter(
-                payment_promise__receivable=rec,
-                voided_at__isnull=True,
-            ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        for rec in receivable_balances(active_receivables):
+            paid = rec._paid_total
 
             remaining = max(Decimal("0.00"), rec.original_amount - paid)
             total_outstanding += remaining
@@ -66,15 +82,9 @@ class DashboardView(APIView):
             if remaining > Decimal("0.00") and rec.due_date < today:
                 total_overdue += remaining
 
-            # Active promises
-            active_promises = rec.payment_promises.filter(cancelled_at__isnull=True)
-            active_promised_remaining = Decimal("0.00")
-            for prom in active_promises:
-                prom_paid = Payment.objects.filter(
-                    payment_promise=prom,
-                    voided_at__isnull=True,
-                ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
-                active_promised_remaining += max(Decimal("0.00"), prom.amount - prom_paid)
+            active_promised_remaining = max(
+                Decimal("0.00"), rec._active_total - rec._active_paid
+            )
 
             unpromised = max(Decimal("0.00"), remaining - active_promised_remaining)
             total_unpromised += unpromised
@@ -87,14 +97,12 @@ class DashboardView(APIView):
             paid_on__lte=range_end,
         )
 
-        cash_collected = (
-            payments_in_period.filter(method=Payment.Method.CASH).aggregate(total=Sum("amount"))["total"]
-            or Decimal("0.00")
-        )
-        whish_collected = (
-            payments_in_period.filter(method=Payment.Method.WHISH).aggregate(total=Sum("amount"))["total"]
-            or Decimal("0.00")
-        )
+        cash_collected = payments_in_period.filter(
+            method=Payment.Method.CASH
+        ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        whish_collected = payments_in_period.filter(
+            method=Payment.Method.WHISH
+        ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
         total_collected = cash_collected + whish_collected
 
         # 3. Broken promises: non-cancelled, promised_on < today, remaining > 0
@@ -108,11 +116,8 @@ class DashboardView(APIView):
         upcoming_promises = []
         seven_days_later = today + timedelta(days=7)
 
-        for prom in all_active_promises:
-            p_paid = Payment.objects.filter(
-                payment_promise=prom,
-                voided_at__isnull=True,
-            ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        for prom in promise_balances(all_active_promises):
+            p_paid = prom._paid_total
             p_rem = max(Decimal("0.00"), prom.amount - p_paid)
 
             if p_rem > Decimal("0.00"):

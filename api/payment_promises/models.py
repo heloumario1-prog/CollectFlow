@@ -9,7 +9,7 @@ from django.utils import timezone
 class PaymentPromise(models.Model):
     class Status(models.TextChoices):
         CANCELLED = "CANCELLED", "Cancelled"
-        KEPT = "KEPT", "Kept"
+        KEPT = "KEPT", "Completed"
         BROKEN = "BROKEN", "Broken"
         PENDING = "PENDING", "Pending"
 
@@ -69,13 +69,11 @@ class PaymentPromise(models.Model):
         if promise_remaining == Decimal("0"):
             return self.Status.KEPT
 
-        beirut_today = today or timezone.localdate(
-            timezone=ZoneInfo("Asia/Beirut")
-        )
-        
+        beirut_today = today or timezone.localdate(timezone=ZoneInfo("Asia/Beirut"))
+
         if self.promised_on < beirut_today:
             return self.Status.BROKEN
-        
+
         return self.Status.PENDING
 
     def __str__(self):

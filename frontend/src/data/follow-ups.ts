@@ -12,6 +12,7 @@ type ApiFollowUp = {
   created_by_name: string;
   created_at: string;
   updated_at: string;
+  completed_at: string | null;
 };
 
 type ApiPage<T> = {
@@ -30,9 +31,13 @@ export type FollowUp = {
   date: string;
   notes: string;
   createdBy: string;
+  completedAt: string | null;
+  paymentPromiseId: number | null;
 };
 
 export type FollowUpInput = {
+  paymentPromiseId?: number | null;
+  nextFollowUpOn?: string | null;
   customerId: number;
   receivableId: number | null;
   date: string;
@@ -51,17 +56,19 @@ function fromApi(item: ApiFollowUp): FollowUp {
     date: item.occurred_at,
     notes: item.note,
     createdBy: item.created_by_name,
+    completedAt: item.completed_at,
+    paymentPromiseId: item.payment_promise,
   };
 }
 
-export async function getFollowUps(): Promise<FollowUp[]> {
+export async function getFollowUps(signal?: AbortSignal): Promise<FollowUp[]> {
   const items: ApiFollowUp[] = [];
   let page = 1;
 
   while (true) {
     const response = await apiRequest<
       ApiPage<ApiFollowUp> | ApiFollowUp[]
-    >(`followups/?page=${page}`);
+    >(`followups/?page=${page}`, { signal });
 
     if (Array.isArray(response)) {
       items.push(...response);
@@ -84,6 +91,8 @@ export async function addFollowUp(input: FollowUpInput): Promise<void> {
   await apiRequest<ApiFollowUp>("followups/", {
     method: "POST",
     body: {
+      ...(input.nextFollowUpOn !== undefined ? { next_follow_up_on: input.nextFollowUpOn } : {}),
+      ...(input.paymentPromiseId !== undefined ? { payment_promise: input.paymentPromiseId } : {}),
       customer: input.customerId,
       receivable: input.receivableId,
       occurred_at: input.date,
@@ -99,10 +108,16 @@ export async function updateFollowUp(
   await apiRequest<ApiFollowUp>(`followups/${id}/`, {
     method: "PATCH",
     body: {
+      ...(input.nextFollowUpOn !== undefined ? { next_follow_up_on: input.nextFollowUpOn } : {}),
+      ...(input.paymentPromiseId !== undefined ? { payment_promise: input.paymentPromiseId } : {}),
       customer: input.customerId,
       receivable: input.receivableId,
       occurred_at: input.date,
       note: input.notes.trim(),
     },
   });
+}
+
+export async function getFollowUp(id: string): Promise<FollowUp> {
+  return fromApi(await apiRequest<ApiFollowUp>(`followups/${encodeURIComponent(id)}/`));
 }
