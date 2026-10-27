@@ -2,6 +2,57 @@
 
 This README contains setup, run, validation, and deployment guidance for both the API and frontend.
 
+## About this version
+
+This repository is **Mario El Helou’s customized version** of the [TechTalks CollectFlow team project](https://github.com/fida-jebaoui/techtalks-CollectFlow). The original team’s contributions and responsibilities are credited below.
+
+Mario’s contributions include the collection screens, forms, routes, and responsive frontend design (`8999009`), followed by workflow fixes and a design refresh (`7670a05`). The latter adds a centralized navy/teal palette, accessible dialog and mobile-navigation focus handling, API-backed dashboard metrics and period filters, payment retry protection, stronger financial transaction validation, follow-up completion and retained removal, and regression/browser checks. These changes build on the team’s authentication, backend, and frontend/API integration work; see [the implementation review](docs/project-review.md) for verification scope and remaining limitations.
+
+## Screenshots
+
+Actual captures of the locally running React/Django application, using fictional demonstration data in the [documented disposable browser-review setup](docs/project-review.md#reproduce-the-isolated-browser-review). Names, reserved example phone numbers, notes, and USD amounts are synthetic; no real records were altered or deleted, and no credentials are shown. Desktop captures use a 1440 × 1000 viewport; the mobile dashboard uses a 390 × 844 emulated viewport.
+
+### Dashboard
+
+Collection totals, payment methods, and upcoming collection priorities at a glance.
+
+<img src="docs/screenshots/dashboard-desktop.png" alt="CollectFlow desktop dashboard with demonstration collection totals and priorities" width="800">
+
+<details>
+<summary><strong>Customers — contact records and outstanding balances</strong></summary>
+
+<img src="docs/screenshots/customers-desktop.png" alt="Customers list with fictional demo names, example phone numbers, and outstanding balances" width="800">
+
+</details>
+
+<details>
+<summary><strong>Receivables — balances, due dates, and payment statuses</strong></summary>
+
+<img src="docs/screenshots/receivables-desktop.png" alt="Demo receivables showing overdue, partially paid, and paid balances" width="800">
+
+</details>
+
+<details>
+<summary><strong>Payments — Cash and Whish history</strong></summary>
+
+<img src="docs/screenshots/payments-desktop.png" alt="Demonstration payment history with Cash and Whish methods and filters" width="800">
+
+</details>
+
+<details>
+<summary><strong>Follow-ups — contact notes and completion tracking</strong></summary>
+
+<img src="docs/screenshots/follow-ups-desktop.png" alt="Demo follow-up history with collection notes, linked receivables, and completion controls" width="800">
+
+</details>
+
+<details>
+<summary><strong>Mobile — dashboard</strong></summary>
+
+<img src="docs/screenshots/dashboard-mobile.png" alt="CollectFlow dashboard at a mobile viewport with demonstration balances" width="280">
+
+</details>
+
 ## Project Overview
 
 CollectFlow is a focused receivables-management platform designed for Lebanese small businesses and suppliers.
